@@ -45,8 +45,12 @@ func Prepare(isoPath, bootRoot, isoID string) Result {
 		err = prepWindows(isoPath, outDir)
 		res.BootMethod = "wimboot"
 	case model.DistroDebian:
-		err = prepDebian(isoPath, outDir)
-		res.BootMethod = "debian-kernel"
+		// debian-installer from DVD/netinst expects a CD/ISO device for packages.
+		// Booting only vmlinuz/initrd reaches the UI but then fails with
+		// "no installation media". Prefer sanboot so the ISO appears as a CD.
+		_ = prepDebian(isoPath, outDir) // optional extract for manual kernel menu items
+		res.BootMethod = "sanboot"
+		err = nil
 	case model.DistroUbuntu:
 		err = prepUbuntu(isoPath, outDir)
 		res.BootMethod = "ubuntu-kernel"

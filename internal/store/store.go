@@ -50,10 +50,21 @@ func Open(dir string) (*Store, error) {
 	}
 	sanitizeMenusLocked(&s.st)
 	syncISOMenuItemsLocked(&s.st)
+	migrateDebianBootLocked(&s.st)
 	if err := s.persistLocked(); err != nil {
 		return nil, err
 	}
 	return s, nil
+}
+
+func migrateDebianBootLocked(st *model.State) {
+	for i := range st.ISOs {
+		if st.ISOs[i].Distro == model.DistroDebian && st.ISOs[i].BootMethod == "debian-kernel" {
+			st.ISOs[i].BootMethod = "sanboot"
+			st.ISOs[i].PrepOK = true
+			st.ISOs[i].PrepError = ""
+		}
+	}
 }
 
 func defaultState() model.State {
