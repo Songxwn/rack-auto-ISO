@@ -176,7 +176,7 @@ func MenuScript(menu model.Menu, settings model.Settings, isos []model.ISOFile, 
 				b.WriteString("goto start\n")
 				break
 			}
-			b.WriteString(bootISOItem(f, paths))
+			b.WriteString(bootISOItem(f, paths, effectiveVLAN(settings)))
 		case model.ItemKernel:
 			if it.Kernel == "" {
 				b.WriteString("echo missing kernel\n")
@@ -221,7 +221,17 @@ func MenuScript(menu model.Menu, settings model.Settings, isos []model.ISOFile, 
 	return b.String()
 }
 
-func bootISOItem(f model.ISOFile, paths BootPaths) string {
+func effectiveVLAN(settings model.Settings) int {
+	if settings.DefaultNet.VLAN >= 1 && settings.DefaultNet.VLAN <= 4094 {
+		return settings.DefaultNet.VLAN
+	}
+	if settings.ISONet.VLAN >= 1 && settings.ISONet.VLAN <= 4094 {
+		return settings.ISONet.VLAN
+	}
+	return 0
+}
+
+func bootISOItem(f model.ISOFile, paths BootPaths, vlan int) string {
 	var b strings.Builder
 	isoURL := fmt.Sprintf("%s/%s", strings.TrimRight(paths.ISOBase, "/"), f.Filename)
 	bootURL := fmt.Sprintf("%s/%s", strings.TrimRight(paths.BootBase, "/"), f.ID)
@@ -232,15 +242,14 @@ func bootISOItem(f model.ISOFile, paths BootPaths) string {
 	if !f.PrepOK {
 		method = "sanboot"
 	}
+	vlanArgs := vlanKernelArgs(vlan)
 
 	switch method {
 	case "kernel-repo":
-		// RHEL 8-10 / Rocky / Alma / CentOS Stream / Oracle
-		b.WriteString(fmt.Sprintf("kernel %s/images/pxeboot/vmlinuz inst.repo=%s ip=dhcp nomodeset inst.graphical=0\n", bootURL, isoURL))
+		b.WriteString(fmt.Sprintf("kernel %s/images/pxeboot/vmlinuz inst.repo=%s ip=dhcp nomodeset inst.graphical=0%s\n", bootURL, isoURL, vlanArgs))
 		b.WriteString(fmt.Sprintf("initrd %s/images/pxeboot/initrd.img\n", bootURL))
 		b.WriteString("boot || goto start\n")
 	case "esxi-mboot":
-		// Ensure prefix in boot.cfg matches this server URL (best-effort on disk)
 		if f.PrepDir != "" {
 			_ = isoprep.ApplyESXiPrefix(f.PrepDir, bootURL)
 		}
@@ -249,7 +258,6 @@ func bootISOItem(f model.ISOFile, paths BootPaths) string {
 		b.WriteString(fmt.Sprintf("kernel %s/efi/boot/bootx64.efi -c %s/boot.cfg || kernel %s/bootx64.efi -c %s/boot.cfg\n", bootURL, bootURL, bootURL, bootURL))
 		b.WriteString("boot || goto esxi_bios\n")
 		b.WriteString(":esxi_bios\n")
-		// BIOS: CD-style sanboot of original ISO (mboot.c32 needs pxelinux; sanboot is reliable)
 		b.WriteString(fmt.Sprintf("sanboot --no-describe %s || goto start\n", isoURL))
 	case "wimboot":
 		wim := paths.Wimboot
@@ -262,7 +270,6 @@ func bootISOItem(f model.ISOFile, paths BootPaths) string {
 		bcd := "Boot/BCD"
 		sdi := "Boot/boot.sdi"
 		if prepHas(f.PrepDir, "bcd") || prepHas(f.PrepDir, "BCD") {
-			// prefer whichever exists under prep; URLs are case-sensitive on Linux servers
 			if prepRel(f.PrepDir, "BCD") != "" {
 				bcd = prepRel(f.PrepDir, "BCD")
 			} else if prepRel(f.PrepDir, "bcd") != "" {
@@ -292,7 +299,6 @@ func bootISOItem(f model.ISOFile, paths BootPaths) string {
 		vmlinuz := "install.amd/vmlinuz"
 		initrd := "install.amd/initrd.gz"
 		if prepRel(f.PrepDir, "vmlinuz") != "" {
-			// locate relative path
 			if r := findRel(f.PrepDir, "vmlinuz"); r != "" {
 				vmlinuz = r
 			}
@@ -300,11 +306,11 @@ func bootISOItem(f model.ISOFile, paths BootPaths) string {
 				initrd = r
 			}
 		}
-		b.WriteString(fmt.Sprintf("kernel %s/%s vga=normal nomodeset --- quiet\n", bootURL, vmlinuz))
+		b.WriteString(fmt.Sprintf("kernel %s/%s vga=normal nomodeset%s --- quiet\n", bootURL, vmlinuz, vlanArgs))
 		b.WriteString(fmt.Sprintf("initrd %s/%s\n", bootURL, initrd))
 		b.WriteString("boot || goto start\n")
 	case "ubuntu-kernel":
-		b.WriteString(fmt.Sprintf("kernel %s/casper/vmlinuz boot=casper url=%s only-ubiquity nomodeset ---\n", bootURL, isoURL))
+		b.WriteString(fmt.Sprintf("kernel %s/casper/vmlinuz boot=casper url=%s only-ubiquity nomodeset%s ---\n", bootURL, isoURL, vlanArgs))
 		if prepHas(f.PrepDir, "initrd.lz") {
 			b.WriteString(fmt.Sprintf("initrd %s/casper/initrd.lz\n", bootURL))
 		} else {
@@ -355,33 +361,62 @@ func resetVideoBeforeOS() string {
 
 func networkBlock(net model.NetworkConfig) string {
 	var b strings.Builder
+	iface := "net0"
+	vlan := net.VLAN
+	if vlan < 0 || vlan > 4094 {
+		vlan = 0
+	}
+
+	b.WriteString(":netconf\n")
+	if vlan >= 1 {
+		// Tagged VLAN: vcreate net0-<tag>, then DHCP/static on that interface.
+		b.WriteString(fmt.Sprintf("echo VLAN %d on net0\n", vlan))
+		b.WriteString(fmt.Sprintf("vcreate --tag %d net0 || goto netfail\n", vlan))
+		iface = fmt.Sprintf("net0-%d", vlan)
+	}
+
 	switch net.Mode {
 	case model.NetStatic:
-		b.WriteString(":netconf\n")
 		if net.IP != "" {
-			b.WriteString(fmt.Sprintf("set net0/ip %s\n", net.IP))
+			b.WriteString(fmt.Sprintf("set %s/ip %s\n", iface, net.IP))
 		}
 		if net.Netmask != "" {
-			b.WriteString(fmt.Sprintf("set net0/netmask %s\n", net.Netmask))
+			b.WriteString(fmt.Sprintf("set %s/netmask %s\n", iface, net.Netmask))
 		}
 		if net.Gateway != "" {
-			b.WriteString(fmt.Sprintf("set net0/gateway %s\n", net.Gateway))
+			b.WriteString(fmt.Sprintf("set %s/gateway %s\n", iface, net.Gateway))
 		}
 		if net.DNS != "" {
-			b.WriteString(fmt.Sprintf("set net0/dns %s\n", net.DNS))
+			b.WriteString(fmt.Sprintf("set %s/dns %s\n", iface, net.DNS))
 		}
-		b.WriteString("ifopen net0 || goto netfail\n")
+		b.WriteString(fmt.Sprintf("ifopen %s || goto netfail\n", iface))
 	default:
-		b.WriteString(":netconf\n")
-		b.WriteString("dhcp || goto netfail\n")
+		b.WriteString(fmt.Sprintf("dhcp %s || goto netfail\n", iface))
 	}
 	b.WriteString("goto netok\n")
 	b.WriteString(":netfail\n")
 	b.WriteString("echo Network config failed\n")
-	b.WriteString("prompt --key 0x197e --timeout 5000 Press F12 to retry DHCP ||\n")
-	b.WriteString("dhcp || shell\n")
+	if vlan >= 1 {
+		b.WriteString(fmt.Sprintf("echo Check trunk port allows VLAN %d\n", vlan))
+	}
+	b.WriteString("prompt --key 0x197e --timeout 5000 Press F12 to retry ||\n")
+	if vlan >= 1 {
+		b.WriteString(fmt.Sprintf("vcreate --tag %d net0 ||\n", vlan))
+		b.WriteString(fmt.Sprintf("dhcp net0-%d || shell\n", vlan))
+	} else {
+		b.WriteString("dhcp || shell\n")
+	}
 	b.WriteString(":netok\n")
 	return b.String()
+}
+
+// vlanKernelArgs helps Anaconda/dracut keep using the tagged VLAN after iPXE handoff.
+func vlanKernelArgs(vlan int) string {
+	if vlan < 1 || vlan > 4094 {
+		return ""
+	}
+	// Prefer bootif-based naming where possible; also provide eth0.<vlan> style.
+	return fmt.Sprintf(" vlan=eth0.%d:eth0 ip=eth0.%d:dhcp ", vlan, vlan)
 }
 
 func escapeMenu(s string) string {

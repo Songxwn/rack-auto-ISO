@@ -11,6 +11,7 @@ const (
 
 type NetworkConfig struct {
 	Mode    NetMode `json:"mode"`
+	VLAN    int     `json:"vlan,omitempty"` // 0=off; 1-4094 creates net0-<vlan> then DHCP/static
 	IP      string  `json:"ip,omitempty"`
 	Netmask string  `json:"netmask,omitempty"`
 	Gateway string  `json:"gateway,omitempty"`

@@ -50,11 +50,13 @@ function fillSettings(s) {
   f.publicUrl.value = s.publicUrl || "";
   f.chainUrl.value = s.chainUrl || "";
   f.defaultMode.value = s.defaultNetwork?.mode || "dhcp";
+  f.defaultVlan.value = s.defaultNetwork?.vlan || 0;
   f.defaultIp.value = s.defaultNetwork?.ip || "";
   f.defaultNetmask.value = s.defaultNetwork?.netmask || "";
   f.defaultGateway.value = s.defaultNetwork?.gateway || "";
   f.defaultDns.value = s.defaultNetwork?.dns || "";
   f.isoMode.value = s.isoNetwork?.mode || "dhcp";
+  f.isoVlan.value = s.isoNetwork?.vlan || 0;
   f.isoIp.value = s.isoNetwork?.ip || "";
   f.isoNetmask.value = s.isoNetwork?.netmask || "";
   f.isoGateway.value = s.isoNetwork?.gateway || "";
@@ -70,6 +72,7 @@ $("#settings-form").addEventListener("submit", async (e) => {
     chainUrl: f.chainUrl.value.trim(),
     defaultNetwork: {
       mode: f.defaultMode.value,
+      vlan: Number(f.defaultVlan.value || 0),
       ip: f.defaultIp.value.trim(),
       netmask: f.defaultNetmask.value.trim(),
       gateway: f.defaultGateway.value.trim(),
@@ -77,6 +80,7 @@ $("#settings-form").addEventListener("submit", async (e) => {
     },
     isoNetwork: {
       mode: f.isoMode.value,
+      vlan: Number(f.isoVlan.value || 0),
       ip: f.isoIp.value.trim(),
       netmask: f.isoNetmask.value.trim(),
       gateway: f.isoGateway.value.trim(),

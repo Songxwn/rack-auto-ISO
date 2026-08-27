@@ -47,6 +47,7 @@
               <option value="static">静态</option>
             </select>
           </label>
+          <label>VLAN ID <input name="defaultVlan" type="number" min="0" max="4094" placeholder="0=不使用" /></label>
           <label>IP <input name="defaultIp" /></label>
           <label>掩码 <input name="defaultNetmask" placeholder="255.255.255.0" /></label>
           <label>网关 <input name="defaultGateway" /></label>
@@ -54,13 +55,15 @@
         </fieldset>
 
         <fieldset>
-          <legend>导出 ISO 内嵌网络</legend>
+          <legend>导出 ISO 内嵌网络（含 VLAN）</legend>
+          <p class="hint" style="grid-column:1/-1;margin:0">填写 VLAN 后，iPXE 会 <code>vcreate --tag</code> 在 net0 上建 tagged 接口并 DHCP，再 chain 菜单 / 拉 ISO。交换机口需为 Trunk 并放行该 VLAN。建议与上方默认网络 VLAN 保持一致。</p>
           <label>模式
             <select name="isoMode">
               <option value="dhcp">DHCP</option>
               <option value="static">静态</option>
             </select>
           </label>
+          <label>VLAN ID <input name="isoVlan" type="number" min="0" max="4094" placeholder="0=不使用" /></label>
           <label>IP <input name="isoIp" /></label>
           <label>掩码 <input name="isoNetmask" /></label>
           <label>网关 <input name="isoGateway" /></label>

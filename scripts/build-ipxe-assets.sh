@@ -22,6 +22,7 @@ cat > "$WORKDIR/ipxe/src/config/local/general.h" <<'EOF'
 #define REBOOT_CMD
 #define PING_CMD
 #define CONSOLE_CMD
+#define VLAN_CMD
 #define IMAGE_PNG
 #define IMAGE_EFI
 #define SANBOOT_CMD

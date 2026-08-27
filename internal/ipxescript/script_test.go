@@ -105,6 +105,20 @@ func TestWindowsWimboot(t *testing.T) {
 	}
 }
 
+func TestVLANEmbed(t *testing.T) {
+	s := ipxescript.EmbedScript(model.Settings{
+		ServerName: "test",
+		PublicURL:  "http://10.0.0.1:8081",
+		ISONet:     model.NetworkConfig{Mode: model.NetDHCP, VLAN: 100},
+	})
+	if !strings.Contains(s, "vcreate --tag 100 net0") {
+		t.Fatalf("missing vcreate: %s", s)
+	}
+	if !strings.Contains(s, "dhcp net0-100") {
+		t.Fatalf("missing vlan dhcp: %s", s)
+	}
+}
+
 func TestRawOverride(t *testing.T) {
 	menu := model.Menu{RawScript: "echo hi\n"}
 	out := ipxescript.MenuScript(menu, model.Settings{}, nil, ipxescript.BootPaths{})

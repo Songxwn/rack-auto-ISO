@@ -57,7 +57,7 @@ curl -fsS "http://127.0.0.1:8081/api/health"
 3. 编辑菜单 / 上传 ISO（菜单勿用中文）
 4. 导出或直接 PXE/`/boot.ipxe` 启动节点
 
-若 Debian/Ubuntu ISO **花屏**：已默认关闭 iPXE 图形控制台；请升级到最新 Release 后重试。仍花屏时可在安装器选 **Install** 文本模式，或改用 `kernel` 菜单项引导 `vmlinuz`/`initrd` 并带 `nomodeset`。
+若使用 **VLAN 装机网**：在「导出 ISO 内嵌网络」填写 VLAN ID（1–4094），并与「默认网络」保持一致；交换机口须为 Trunk。重新导出 iPXE ISO 后，会先 `vcreate` 再 DHCP，再进入菜单并拉取安装源。
 
 环境变量：`IPXE_LISTEN`、`IPXE_DATA`、`IPXE_PUBLIC_URL`、`IPXE_ASSETS`。  
 arm64 将资源名中的 `linux_amd64` 换成 `linux_arm64`。
