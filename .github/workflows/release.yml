@@ -1,0 +1,102 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  assets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc-multilib liblzma-dev mtools
+      - name: Build iPXE assets
+        run: bash scripts/build-ipxe-assets.sh assets
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ipxe-assets
+          path: assets/
+
+  build:
+    needs: assets
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+      - uses: actions/download-artifact@v4
+        with:
+          name: ipxe-assets
+          path: assets
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          EXT=""
+          BIN="ipxe-manager"
+          if [ "$GOOS" = "windows" ]; then
+            EXT=".exe"
+            BIN="ipxe-manager.exe"
+          fi
+          mkdir -p dist
+          go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
+            -o "dist/${BIN}" ./cmd/ipxe-manager
+          STAGE="dist/stage_${GOOS}_${GOARCH}"
+          mkdir -p "$STAGE"
+          cp "dist/${BIN}" "$STAGE/"
+          cp -a assets "$STAGE/"
+          (
+            cd "$STAGE"
+            if [ "$GOOS" = "windows" ]; then
+              zip -r "../ipxe-manager_${VERSION}_${GOOS}_${GOARCH}.zip" .
+            else
+              tar -czf "../ipxe-manager_${VERSION}_${GOOS}_${GOARCH}.tar.gz" .
+            fi
+          )
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Collect archives
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name '*.tar.gz' -o -name '*.zip' \) -exec cp {} release/ \;
+          ls -lh release
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: release/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

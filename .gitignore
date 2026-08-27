@@ -1,0 +1,21 @@
+# Binaries / local data
+/data/
+/dist/
+/assets/ipxe.lkrn
+/assets/ipxe.efi
+/assets/isolinux.bin
+/assets/ldlinux.c32
+*.iso
+*.exe
+
+# Go
+/bin/
+*.test
+coverage.out
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.tmp

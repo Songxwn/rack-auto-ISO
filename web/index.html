@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>rack-auto-ISO · iPXE 管理</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="mark">iPXE</span>
+      <div>
+        <h1>rack-auto-ISO</h1>
+        <p class="sub">启动菜单 · ISO · 网络引导服务</p>
+      </div>
+    </div>
+    <div class="top-meta">
+      <span id="health" class="pill">…</span>
+      <a class="link" href="/boot.ipxe" target="_blank">/boot.ipxe</a>
+      <a class="link" href="/menu.ipxe" target="_blank">/menu.ipxe</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-tab="settings">服务器与网络</button>
+    <button class="tab" data-tab="menus">启动菜单</button>
+    <button class="tab" data-tab="isos">ISO 文件</button>
+    <button class="tab" data-tab="export">导出 iPXE ISO</button>
+  </nav>
+
+  <main>
+    <section id="tab-settings" class="panel active">
+      <h2>公共地址与网络</h2>
+      <p class="hint">Public URL 会写入菜单与导出 ISO 的 chain 目标，请填控制面可被装机网访问的地址。</p>
+      <form id="settings-form" class="form-grid">
+        <label>服务器名称 <input name="serverName" /></label>
+        <label>Public URL <input name="publicUrl" placeholder="http://192.168.1.10:8080" /></label>
+        <label>Chain URL 覆盖 <input name="chainUrl" placeholder="留空则用 Public URL/boot.ipxe" /></label>
+
+        <fieldset>
+          <legend>服务端默认网络（/boot.ipxe）</legend>
+          <label>模式
+            <select name="defaultMode">
+              <option value="dhcp">DHCP</option>
+              <option value="static">静态</option>
+            </select>
+          </label>
+          <label>IP <input name="defaultIp" /></label>
+          <label>掩码 <input name="defaultNetmask" placeholder="255.255.255.0" /></label>
+          <label>网关 <input name="defaultGateway" /></label>
+          <label>DNS <input name="defaultDns" /></label>
+        </fieldset>
+
+        <fieldset>
+          <legend>导出 ISO 内嵌网络</legend>
+          <label>模式
+            <select name="isoMode">
+              <option value="dhcp">DHCP</option>
+              <option value="static">静态</option>
+            </select>
+          </label>
+          <label>IP <input name="isoIp" /></label>
+          <label>掩码 <input name="isoNetmask" /></label>
+          <label>网关 <input name="isoGateway" /></label>
+          <label>DNS <input name="isoDns" /></label>
+        </fieldset>
+
+        <div class="actions">
+          <button type="submit" class="btn primary">保存设置</button>
+          <span id="settings-msg" class="msg"></span>
+        </div>
+      </form>
+    </section>
+
+    <section id="tab-menus" class="panel">
+      <div class="row-between">
+        <h2>启动菜单</h2>
+        <button type="button" id="btn-new-menu" class="btn">新建菜单</button>
+      </div>
+      <div class="split">
+        <aside>
+          <ul id="menu-list" class="list"></ul>
+        </aside>
+        <div>
+          <form id="menu-form" class="form-grid">
+            <input type="hidden" name="id" />
+            <label>名称 <input name="name" required /></label>
+            <label>描述 <input name="description" /></label>
+            <label>超时（秒） <input name="timeoutSec" type="number" min="0" value="30" /></label>
+            <label>默认项 ID <input name="defaultItem" placeholder="item id" /></label>
+
+            <div class="row-between">
+              <h3>菜单项</h3>
+              <button type="button" id="btn-add-item" class="btn small">添加项</button>
+            </div>
+            <div id="items" class="items"></div>
+
+            <label class="full">原始脚本覆盖（填写后忽略上方可视化菜单）
+              <textarea name="rawScript" rows="8" placeholder="#!ipxe&#10;..."></textarea>
+            </label>
+
+            <div class="actions">
+              <button type="submit" class="btn primary">保存菜单</button>
+              <button type="button" id="btn-preview" class="btn">预览脚本</button>
+              <button type="button" id="btn-delete-menu" class="btn danger">删除</button>
+              <span id="menu-msg" class="msg"></span>
+            </div>
+          </form>
+          <pre id="preview" class="preview" hidden></pre>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-isos" class="panel">
+      <h2>ISO 仓库</h2>
+      <form id="iso-form" class="form-inline">
+        <label>显示名 <input name="name" /></label>
+        <label>文件 <input name="file" type="file" accept=".iso,application/octet-stream" required /></label>
+        <label>备注 <input name="note" /></label>
+        <button type="submit" class="btn primary">上传</button>
+        <span id="iso-msg" class="msg"></span>
+      </form>
+      <table class="table">
+        <thead>
+          <tr><th>名称</th><th>文件</th><th>大小</th><th>时间</th><th></th></tr>
+        </thead>
+        <tbody id="iso-body"></tbody>
+      </table>
+    </section>
+
+    <section id="tab-export" class="panel">
+      <h2>导出可自动启动的 iPXE 介质</h2>
+      <p class="hint">导出 ISO 会嵌入当前「导出 ISO 内嵌网络」配置，并 chain 到 Public URL 的 /boot.ipxe。需要 Release 自带的 assets/，以及运行环境安装 <code>xorriso</code>。无 xorriso 时可下载 bundle.zip 自行制作。</p>
+      <div class="actions">
+        <a class="btn primary" href="/api/iso/export">下载 ipxe-custom.iso</a>
+        <a class="btn" href="/api/iso/bundle.zip">下载 bundle.zip</a>
+        <a class="btn" href="/api/iso/embed.ipxe">仅下载 embed.ipxe</a>
+      </div>
+      <pre id="embed-preview" class="preview"></pre>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span>控制面二进制请从 GitHub Release 下载，勿本机 go build。</span>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
