@@ -131,7 +131,7 @@
 
     <section id="tab-export" class="panel">
       <h2>导出可自动启动的 iPXE 介质</h2>
-      <p class="hint">导出 ISO 会嵌入当前「导出 ISO 内嵌网络」配置，并 chain 到 Public URL 的 /boot.ipxe。需要 Release 自带的 assets/，以及运行环境安装 <code>xorriso</code>。无 xorriso 时可下载 bundle.zip 自行制作。</p>
+      <p class="hint">导出 ISO 会嵌入当前「导出 ISO 内嵌网络」并 chain 到 Public URL。GHCR 镜像内含正确 isohybrid 工具链（xorriso / dosfstools / 可选重编 ipxe.efi）。请用虚拟光驱或写入 U 盘后启动；Secure Boot 需关闭。</p>
       <div class="actions">
         <a class="btn primary" href="/api/iso/export">下载 ipxe-custom.iso</a>
         <a class="btn" href="/api/iso/bundle.zip">下载 bundle.zip</a>

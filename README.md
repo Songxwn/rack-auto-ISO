@@ -11,7 +11,7 @@
 - **引导服务**：`/boot.ipxe`、`/menu.ipxe`、`/files/isos/...`
 - **ISO 仓库**：上传后可在菜单项里用 `iso` / `sanboot` 引用
 - **导出介质**：
-  - `ipxe-custom.iso`（镜像内已含 `xorriso` + `assets/`）
+  - `ipxe-custom.iso`：BIOS（isolinux+INITRD）+ UEFI（FAT `efi.img` ESP）isohybrid，可光驱/U 盘启动
   - `bundle.zip` / `embed.ipxe`
 
 ---
