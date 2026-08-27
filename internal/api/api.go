@@ -11,6 +11,7 @@ import (
 
 	"github.com/Songxwn/rack-auto-ISO/internal/ipxescript"
 	"github.com/Songxwn/rack-auto-ISO/internal/isogen"
+	"github.com/Songxwn/rack-auto-ISO/internal/isoprep"
 	"github.com/Songxwn/rack-auto-ISO/internal/model"
 	"github.com/Songxwn/rack-auto-ISO/internal/store"
 	"github.com/Songxwn/rack-auto-ISO/web"
@@ -32,6 +33,7 @@ func New(st *store.Store, version string) *Server {
 		"assets",
 		"internal/isogen/assets",
 	}
+	_ = os.MkdirAll(st.BootDir(), 0o755)
 	return &Server{
 		store:   st,
 		version: version,
@@ -39,20 +41,33 @@ func New(st *store.Store, version string) *Server {
 	}
 }
 
+func (s *Server) bootPaths() ipxescript.BootPaths {
+	base := strings.TrimRight(s.store.Settings().PublicURL, "/")
+	p := ipxescript.BootPaths{PublicBase: base}
+	if base != "" {
+		p.ISOBase = base + "/files/isos"
+		p.BootBase = base + "/files/boot"
+		p.AssetsBase = base + "/files/assets"
+		p.Wimboot = base + "/files/assets/wimboot"
+	}
+	return p
+}
+
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
-	// Admin UI
 	mux.Handle("GET /", s.ui())
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(web.Static))))
 
-	// iPXE client endpoints
 	mux.HandleFunc("GET /boot.ipxe", s.serveBoot)
 	mux.HandleFunc("GET /menu.ipxe", s.serveMenu)
 	mux.HandleFunc("GET /embed.ipxe", s.serveEmbed)
 	mux.Handle("GET /files/isos/", http.StripPrefix("/files/isos/", http.FileServer(http.Dir(s.store.ISODir()))))
+	mux.Handle("GET /files/boot/", http.StripPrefix("/files/boot/", http.FileServer(http.Dir(s.store.BootDir()))))
+	if s.assets != "" {
+		mux.Handle("GET /files/assets/", http.StripPrefix("/files/assets/", http.FileServer(http.Dir(s.assets))))
+	}
 
-	// REST API
 	mux.HandleFunc("GET /api/health", s.health)
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("PUT /api/settings", s.putSettings)
@@ -93,6 +108,7 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 		"ok":      true,
 		"version": s.version,
 		"assets":  s.assets != "",
+		"wimboot": s.assets != "" && fileExists(filepath.Join(s.assets, "wimboot")),
 	})
 }
 
@@ -174,7 +190,7 @@ func (s *Server) previewMenu(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	script := ipxescript.MenuScript(m, s.store.Settings(), s.store.ListISOs())
+	script := ipxescript.MenuScript(m, s.store.Settings(), s.store.ListISOs(), s.bootPaths())
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = w.Write([]byte(script))
 }
@@ -184,7 +200,7 @@ func (s *Server) listISOs(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) uploadISO(w http.ResponseWriter, r *http.Request) {
-	const maxUpload = 16 << 30 // 16 GiB
+	const maxUpload = 16 << 30
 	r.Body = http.MaxBytesReader(w, r.Body, maxUpload)
 	if err := r.ParseMultipartForm(64 << 20); err != nil {
 		http.Error(w, "invalid multipart: "+err.Error(), http.StatusBadRequest)
@@ -226,20 +242,37 @@ func (s *Server) uploadISO(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	meta, err := s.store.AddISO(model.ISOFile{
+	meta := model.ISOFile{
 		ID:          id,
 		Name:        name,
 		Filename:    filename,
 		Size:        written,
 		ContentType: hdr.Header.Get("Content-Type"),
 		Note:        r.FormValue("note"),
-	})
+		Distro:      model.DistroGeneric,
+		BootMethod:  "sanboot",
+	}
+
+	prep := isoprep.Prepare(dstPath, s.store.BootDir(), id)
+	meta.Distro = prep.Distro
+	meta.BootMethod = prep.BootMethod
+	meta.PrepDir = prep.PrepDir
+	if prep.Error != "" {
+		meta.PrepError = prep.Error
+		meta.BootMethod = "sanboot"
+		meta.PrepOK = false
+	} else {
+		meta.PrepOK = true
+	}
+
+	saved, err := s.store.AddISO(meta)
 	if err != nil {
 		_ = os.Remove(dstPath)
+		_ = os.RemoveAll(filepath.Join(s.store.BootDir(), id))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, meta)
+	writeJSON(w, saved)
 }
 
 func (s *Server) deleteISO(w http.ResponseWriter, r *http.Request) {
@@ -270,7 +303,7 @@ func (s *Server) serveMenu(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "menu not found", http.StatusNotFound)
 		return
 	}
-	script := ipxescript.MenuScript(m, s.store.Settings(), s.store.ListISOs())
+	script := ipxescript.MenuScript(m, s.store.Settings(), s.store.ListISOs(), s.bootPaths())
 	writeIPXE(w, script)
 }
 
@@ -333,4 +366,9 @@ func withCORS(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
 }

@@ -17,6 +17,7 @@
     </div>
     <div class="top-meta">
       <span id="health" class="pill">…</span>
+      <span id="version" class="pill ver">version …</span>
       <a class="link" href="/boot.ipxe" target="_blank">/boot.ipxe</a>
       <a class="link" href="/menu.ipxe" target="_blank">/menu.ipxe</a>
     </div>
@@ -115,7 +116,7 @@
 
     <section id="tab-isos" class="panel">
       <h2>ISO 仓库</h2>
-      <p class="hint">上传成功后自动写入默认启动菜单（标签取文件名中的 ASCII；纯中文名则用 ISO-xxxxxxxx）。删除 ISO 时同步移除对应菜单项。</p>
+      <p class="hint">上传成功后自动识别 RHEL/Rocky/Alma、ESXi、Windows、Debian/Ubuntu 并准备引导文件（需服务器安装 <code>bsdtar</code> 或 <code>7z</code>），同时加入默认菜单。菜单标签仅 ASCII。</p>
       <form id="iso-form" class="form-inline">
         <label>显示名 <input name="name" /></label>
         <label>文件 <input name="file" type="file" accept=".iso,application/octet-stream" required /></label>
@@ -125,7 +126,7 @@
       </form>
       <table class="table">
         <thead>
-          <tr><th>名称</th><th>文件</th><th>大小</th><th>时间</th><th></th></tr>
+          <tr><th>名称</th><th>类型</th><th>引导</th><th>大小</th><th>状态</th><th></th></tr>
         </thead>
         <tbody id="iso-body"></tbody>
       </table>

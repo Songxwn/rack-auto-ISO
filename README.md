@@ -9,11 +9,9 @@
 
 - **Web 管理**：服务器 Public URL、DHCP/静态网络、菜单可视化编辑、原始脚本覆盖
 - **引导服务**：`/boot.ipxe`、`/menu.ipxe`、`/files/isos/...`
-- **ISO 仓库**：上传后自动加入默认启动菜单（`iso` / sanboot）
-- 菜单文案仅使用 **ASCII/英文**（iPXE 菜单不支持中文显示）
-- **导出介质**：
-  - `ipxe-custom.iso`：BIOS（isolinux+INITRD）+ UEFI（FAT `efi.img` ESP）isohybrid
-  - `bundle.zip` / `embed.ipxe`
+- **ISO 仓库**：上传后自动识别并准备引导（RHEL 8–10 / Rocky / Alma、ESXi 6.7–9、Windows、Debian/Ubuntu），并加入默认菜单
+- 菜单文案仅 **ASCII/英文**；Web 顶栏显示版本号
+- **导出介质**：BIOS + UEFI isohybrid iPXE ISO
 
 ---
 
@@ -34,9 +32,10 @@ mkdir -p ~/ipxe-manager && cd ~/ipxe-manager
 curl -fsSL -o "$ASSET" "$URL"
 tar -xzf "$ASSET"
 
-# 导出 iPXE ISO 需要
+# 导出 iPXE ISO / 识别安装盘需要
 sudo apt-get update
-sudo apt-get install -y xorriso dosfstools mtools
+sudo apt-get install -y xorriso dosfstools mtools libarchive-tools
+# 或: sudo apt-get install -y p7zip-full
 
 # 将 <装机网可达IP> 换成控制面地址
 ./ipxe-manager \

@@ -2,19 +2,19 @@ package ipxescript
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/Songxwn/rack-auto-ISO/internal/ascii"
+	"github.com/Songxwn/rack-auto-ISO/internal/isoprep"
 	"github.com/Songxwn/rack-auto-ISO/internal/model"
 )
 
 // EmbedScript builds the script baked into exported iPXE ISO.
-// It configures network then chains to the management server menu.
 func EmbedScript(settings model.Settings) string {
 	var b strings.Builder
 	b.WriteString("#!ipxe\n")
-	// Stay on text console. VGA/graphical console often causes garbled display
-	// after sanboot into Debian/Ubuntu installers (framebuffer handoff).
 	b.WriteString(fmt.Sprintf("echo %s - network bootstrap\n", safe(settings.ServerName)))
 	b.WriteString(networkBlock(settings.ISONet))
 	chain := settings.ChainURL
@@ -39,9 +39,6 @@ func EmbedScript(settings model.Settings) string {
 // BootScript is the entry script served at /boot.ipxe.
 func BootScript(settings model.Settings, menuID string) string {
 	base := strings.TrimRight(settings.PublicURL, "/")
-	if base == "" {
-		base = ""
-	}
 	menuURL := "/menu.ipxe"
 	if menuID != "" && menuID != "default" {
 		menuURL = "/menu.ipxe?id=" + menuID
@@ -58,8 +55,17 @@ func BootScript(settings model.Settings, menuID string) string {
 	return b.String()
 }
 
+// AssetsURL is where wimboot and similar helpers are served (e.g. /files/assets).
+type BootPaths struct {
+	PublicBase string // http://host:8081
+	AssetsBase string // http://host:8081/files/assets
+	BootBase   string // http://host:8081/files/boot
+	ISOBase    string // http://host:8081/files/isos
+	Wimboot    string // full URL to wimboot, optional
+}
+
 // MenuScript renders a menu (or returns raw script override).
-func MenuScript(menu model.Menu, settings model.Settings, isos []model.ISOFile) string {
+func MenuScript(menu model.Menu, settings model.Settings, isos []model.ISOFile, paths BootPaths) string {
 	if strings.TrimSpace(menu.RawScript) != "" {
 		raw := menu.RawScript
 		if !strings.HasPrefix(strings.TrimSpace(raw), "#!ipxe") {
@@ -69,6 +75,22 @@ func MenuScript(menu model.Menu, settings model.Settings, isos []model.ISOFile) 
 	}
 
 	base := strings.TrimRight(settings.PublicURL, "/")
+	if paths.PublicBase == "" {
+		paths.PublicBase = base
+	}
+	if paths.ISOBase == "" && base != "" {
+		paths.ISOBase = base + "/files/isos"
+	}
+	if paths.BootBase == "" && base != "" {
+		paths.BootBase = base + "/files/boot"
+	}
+	if paths.AssetsBase == "" && base != "" {
+		paths.AssetsBase = base + "/files/assets"
+	}
+	if paths.Wimboot == "" && paths.AssetsBase != "" {
+		paths.Wimboot = paths.AssetsBase + "/wimboot"
+	}
+
 	isoByID := map[string]model.ISOFile{}
 	for _, f := range isos {
 		isoByID[f.ID] = f
@@ -76,8 +98,6 @@ func MenuScript(menu model.Menu, settings model.Settings, isos []model.ISOFile) 
 
 	var b strings.Builder
 	b.WriteString("#!ipxe\n")
-	// Text menu only — avoid "console --x 1024 --y 768" (common cause of 花屏
-	// when chainloading Linux installers that reinit the framebuffer).
 	timeout := menu.TimeoutSec
 	if timeout <= 0 {
 		timeout = 30
@@ -156,18 +176,7 @@ func MenuScript(menu model.Menu, settings model.Settings, isos []model.ISOFile) 
 				b.WriteString("goto start\n")
 				break
 			}
-			url := it.URL
-			if url == "" {
-				if base != "" {
-					url = fmt.Sprintf("%s/files/isos/%s", base, f.Filename)
-				} else {
-					url = fmt.Sprintf("isos/%s", f.Filename)
-				}
-			}
-			b.WriteString(fmt.Sprintf("echo Booting ISO %s\n", escapeMenu(f.Name)))
-			b.WriteString(resetVideoBeforeOS())
-			// --no-describe avoids injecting iPXE boot info that some installers mishandle
-			b.WriteString(fmt.Sprintf("sanboot --no-describe %s || goto start\n", url))
+			b.WriteString(bootISOItem(f, paths))
 		case model.ItemKernel:
 			if it.Kernel == "" {
 				b.WriteString("echo missing kernel\n")
@@ -178,7 +187,6 @@ func MenuScript(menu model.Menu, settings model.Settings, isos []model.ISOFile) 
 			b.WriteString(resetVideoBeforeOS())
 			args := strings.TrimSpace(it.Args)
 			if args == "" {
-				// Safe defaults for Debian/Ubuntu graphical installer handoff
 				args = "nomodeset vga=normal"
 			}
 			b.WriteString(fmt.Sprintf("kernel %s %s\n", it.Kernel, args))
@@ -213,7 +221,134 @@ func MenuScript(menu model.Menu, settings model.Settings, isos []model.ISOFile) 
 	return b.String()
 }
 
-// resetVideoBeforeOS drops any graphical/VESA console before handing off to an OS.
+func bootISOItem(f model.ISOFile, paths BootPaths) string {
+	var b strings.Builder
+	isoURL := fmt.Sprintf("%s/%s", strings.TrimRight(paths.ISOBase, "/"), f.Filename)
+	bootURL := fmt.Sprintf("%s/%s", strings.TrimRight(paths.BootBase, "/"), f.ID)
+	b.WriteString(fmt.Sprintf("echo Booting %s (%s)\n", escapeMenu(f.Name), escapeMenu(string(f.Distro))))
+	b.WriteString(resetVideoBeforeOS())
+
+	method := f.BootMethod
+	if !f.PrepOK {
+		method = "sanboot"
+	}
+
+	switch method {
+	case "kernel-repo":
+		// RHEL 8-10 / Rocky / Alma / CentOS Stream / Oracle
+		b.WriteString(fmt.Sprintf("kernel %s/images/pxeboot/vmlinuz inst.repo=%s ip=dhcp nomodeset inst.graphical=0\n", bootURL, isoURL))
+		b.WriteString(fmt.Sprintf("initrd %s/images/pxeboot/initrd.img\n", bootURL))
+		b.WriteString("boot || goto start\n")
+	case "esxi-mboot":
+		// Ensure prefix in boot.cfg matches this server URL (best-effort on disk)
+		if f.PrepDir != "" {
+			_ = isoprep.ApplyESXiPrefix(f.PrepDir, bootURL)
+		}
+		b.WriteString("iseq ${platform} efi && goto esxi_efi || goto esxi_bios\n")
+		b.WriteString(":esxi_efi\n")
+		b.WriteString(fmt.Sprintf("kernel %s/efi/boot/bootx64.efi -c %s/boot.cfg || kernel %s/bootx64.efi -c %s/boot.cfg\n", bootURL, bootURL, bootURL, bootURL))
+		b.WriteString("boot || goto esxi_bios\n")
+		b.WriteString(":esxi_bios\n")
+		// BIOS: CD-style sanboot of original ISO (mboot.c32 needs pxelinux; sanboot is reliable)
+		b.WriteString(fmt.Sprintf("sanboot --no-describe %s || goto start\n", isoURL))
+	case "wimboot":
+		wim := paths.Wimboot
+		if wim == "" {
+			b.WriteString("echo wimboot asset missing\n")
+			b.WriteString("sleep 3\n")
+			b.WriteString("goto start\n")
+			break
+		}
+		bcd := "Boot/BCD"
+		sdi := "Boot/boot.sdi"
+		if prepHas(f.PrepDir, "bcd") || prepHas(f.PrepDir, "BCD") {
+			// prefer whichever exists under prep; URLs are case-sensitive on Linux servers
+			if prepRel(f.PrepDir, "BCD") != "" {
+				bcd = prepRel(f.PrepDir, "BCD")
+			} else if prepRel(f.PrepDir, "bcd") != "" {
+				bcd = prepRel(f.PrepDir, "bcd")
+			}
+			if prepRel(f.PrepDir, "boot.sdi") != "" {
+				sdi = prepRel(f.PrepDir, "boot.sdi")
+			}
+		}
+		b.WriteString("iseq ${platform} efi && goto win_efi || goto win_bios\n")
+		b.WriteString(":win_efi\n")
+		b.WriteString(fmt.Sprintf("kernel %s\n", wim))
+		b.WriteString(fmt.Sprintf("initrd -n bootmgfw.efi %s/efi/boot/bootx64.efi ||\n", bootURL))
+		b.WriteString(fmt.Sprintf("initrd -n bootmgr.efi %s/bootmgr.efi ||\n", bootURL))
+		b.WriteString(fmt.Sprintf("initrd -n BCD %s/%s\n", bootURL, bcd))
+		b.WriteString(fmt.Sprintf("initrd -n boot.sdi %s/%s\n", bootURL, sdi))
+		b.WriteString(fmt.Sprintf("initrd -n boot.wim %s/sources/boot.wim\n", bootURL))
+		b.WriteString("boot || goto start\n")
+		b.WriteString(":win_bios\n")
+		b.WriteString(fmt.Sprintf("kernel %s\n", wim))
+		b.WriteString(fmt.Sprintf("initrd -n bootmgr.exe %s/bootmgr || initrd -n bootmgr %s/bootmgr\n", bootURL, bootURL))
+		b.WriteString(fmt.Sprintf("initrd -n BCD %s/%s\n", bootURL, bcd))
+		b.WriteString(fmt.Sprintf("initrd -n boot.sdi %s/%s\n", bootURL, sdi))
+		b.WriteString(fmt.Sprintf("initrd -n boot.wim %s/sources/boot.wim\n", bootURL))
+		b.WriteString("boot || goto start\n")
+	case "debian-kernel":
+		vmlinuz := "install.amd/vmlinuz"
+		initrd := "install.amd/initrd.gz"
+		if prepRel(f.PrepDir, "vmlinuz") != "" {
+			// locate relative path
+			if r := findRel(f.PrepDir, "vmlinuz"); r != "" {
+				vmlinuz = r
+			}
+			if r := findRel(f.PrepDir, "initrd.gz"); r != "" {
+				initrd = r
+			}
+		}
+		b.WriteString(fmt.Sprintf("kernel %s/%s vga=normal nomodeset --- quiet\n", bootURL, vmlinuz))
+		b.WriteString(fmt.Sprintf("initrd %s/%s\n", bootURL, initrd))
+		b.WriteString("boot || goto start\n")
+	case "ubuntu-kernel":
+		b.WriteString(fmt.Sprintf("kernel %s/casper/vmlinuz boot=casper url=%s only-ubiquity nomodeset ---\n", bootURL, isoURL))
+		if prepHas(f.PrepDir, "initrd.lz") {
+			b.WriteString(fmt.Sprintf("initrd %s/casper/initrd.lz\n", bootURL))
+		} else {
+			b.WriteString(fmt.Sprintf("initrd %s/casper/initrd\n", bootURL))
+		}
+		b.WriteString("boot || goto start\n")
+	default:
+		b.WriteString(fmt.Sprintf("sanboot --no-describe %s || goto start\n", isoURL))
+	}
+	return b.String()
+}
+
+func prepHas(prepDir, name string) bool {
+	if prepDir == "" {
+		return false
+	}
+	return findRel(prepDir, name) != ""
+}
+
+func prepRel(prepDir, name string) string {
+	return findRel(prepDir, name)
+}
+
+func findRel(root, name string) string {
+	if root == "" {
+		return ""
+	}
+	var rel string
+	_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		if strings.EqualFold(info.Name(), name) {
+			r, err := filepath.Rel(root, path)
+			if err == nil {
+				rel = filepath.ToSlash(r)
+			}
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return rel
+}
+
 func resetVideoBeforeOS() string {
 	return "console ||\nimgfree ||\n"
 }
@@ -250,7 +385,6 @@ func networkBlock(net model.NetworkConfig) string {
 }
 
 func escapeMenu(s string) string {
-	// iPXE menu/console is ASCII-oriented; strip CJK and control chars.
 	s = ascii.MenuText(s)
 	s = strings.ReplaceAll(s, "\n", " ")
 	s = strings.ReplaceAll(s, "\r", "")

@@ -166,6 +166,7 @@ func insertISOItem(items []model.MenuItem, item model.MenuItem) []model.MenuItem
 
 func (s *Store) DataDir() string { return s.dir }
 func (s *Store) ISODir() string  { return filepath.Join(s.dir, "isos") }
+func (s *Store) BootDir() string { return filepath.Join(s.dir, "boot") }
 
 func (s *Store) persistLocked() error {
 	path := filepath.Join(s.dir, "state.json")
@@ -314,6 +315,21 @@ func (s *Store) AddISO(meta model.ISOFile) (model.ISOFile, error) {
 	return meta, nil
 }
 
+func (s *Store) UpdateISO(meta model.ISOFile) (model.ISOFile, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.st.ISOs {
+		if s.st.ISOs[i].ID == meta.ID {
+			s.st.ISOs[i] = meta
+			if err := s.persistLocked(); err != nil {
+				return model.ISOFile{}, err
+			}
+			return meta, nil
+		}
+	}
+	return model.ISOFile{}, ErrNotFound
+}
+
 func (s *Store) DeleteISO(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -349,6 +365,7 @@ func (s *Store) DeleteISO(id string) error {
 		return err
 	}
 	_ = os.Remove(filepath.Join(s.ISODir(), target.Filename))
+	_ = os.RemoveAll(filepath.Join(s.BootDir(), id))
 	return nil
 }
 

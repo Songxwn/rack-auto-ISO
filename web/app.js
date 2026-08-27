@@ -284,11 +284,15 @@ function renderISOs() {
   tb.innerHTML = "";
   state.isos.forEach((iso) => {
     const tr = document.createElement("tr");
+    const st = iso.prepOk
+      ? `<span class="msg ok">${esc(iso.bootMethod || "ok")}</span>`
+      : `<span class="msg err">${esc(iso.prepError || iso.bootMethod || "fallback")}</span>`;
     tr.innerHTML = `
       <td>${esc(iso.name)}</td>
-      <td><a class="link" href="/files/isos/${encodeURIComponent(iso.filename)}" target="_blank">${esc(iso.filename)}</a></td>
+      <td>${esc(iso.distro || "generic")}</td>
+      <td>${esc(iso.bootMethod || "-")}</td>
       <td>${fmtSize(iso.size)}</td>
-      <td>${esc(iso.uploadedAt || "")}</td>
+      <td>${st}</td>
       <td><button type="button" class="btn small danger">删除</button></td>
     `;
     $("button", tr).addEventListener("click", async () => {
@@ -344,10 +348,16 @@ async function boot() {
   try {
     const h = await api("/api/health");
     const el = $("#health");
-    el.textContent = `v${h.version}` + (h.assets ? " · assets ok" : " · assets 缺失");
+    el.textContent = h.assets ? "assets ok" : "assets missing";
     el.classList.add("ok");
+    const ver = $("#version");
+    if (ver) {
+      ver.textContent = "v" + (h.version || "dev");
+      if (h.wimboot) ver.title = "wimboot available";
+      else ver.title = "wimboot missing (Windows ISO needs it)";
+    }
   } catch {
-    $("#health").textContent = "API 不可用";
+    $("#health").textContent = "API unavailable";
   }
   state.settings = await api("/api/settings");
   fillSettings(state.settings);

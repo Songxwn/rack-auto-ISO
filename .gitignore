@@ -6,6 +6,7 @@
 /assets/isolinux.bin
 /assets/ldlinux.c32
 /assets/isohdpfx.bin
+/assets/wimboot
 *.iso
 *.exe
 

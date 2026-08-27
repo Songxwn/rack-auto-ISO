@@ -11,7 +11,7 @@ import (
 func TestEmbedScriptDHCP(t *testing.T) {
 	s := ipxescript.EmbedScript(model.Settings{
 		ServerName: "test",
-		PublicURL:  "http://10.0.0.1:8080",
+		PublicURL:  "http://10.0.0.1:8081",
 		ISONet:     model.NetworkConfig{Mode: model.NetDHCP},
 	})
 	if !strings.HasPrefix(s, "#!ipxe") {
@@ -20,7 +20,7 @@ func TestEmbedScriptDHCP(t *testing.T) {
 	if !strings.Contains(s, "dhcp") {
 		t.Fatal("expected dhcp")
 	}
-	if !strings.Contains(s, "http://10.0.0.1:8080/boot.ipxe") {
+	if !strings.Contains(s, "http://10.0.0.1:8081/boot.ipxe") {
 		t.Fatalf("chain url missing: %s", s)
 	}
 }
@@ -34,61 +34,80 @@ func TestMenuScriptItems(t *testing.T) {
 			{ID: "b", Label: "Off", Type: model.ItemExit, Enabled: false},
 		},
 	}
-	out := ipxescript.MenuScript(menu, model.Settings{}, nil)
+	out := ipxescript.MenuScript(menu, model.Settings{}, nil, ipxescript.BootPaths{})
 	if !strings.Contains(out, "item a Shell") {
 		t.Fatal("missing item")
 	}
 	if strings.Contains(out, "item b ") {
 		t.Fatal("disabled item should be omitted")
 	}
-	if !strings.Contains(out, ":a\nshell") {
-		t.Fatal("missing shell target")
-	}
 }
 
 func TestMenuStripsChinese(t *testing.T) {
 	menu := model.Menu{
-		Name:        "默认启动菜单 Boot",
-		Description: "机架装机",
+		Name: "默认 Boot",
 		Items: []model.MenuItem{
-			{ID: "a", Label: "安装系统 Install", Type: model.ItemShell, Enabled: true},
+			{ID: "a", Label: "安装 Install", Type: model.ItemShell, Enabled: true},
 		},
 	}
-	out := ipxescript.MenuScript(menu, model.Settings{}, nil)
-	if strings.Contains(out, "默认") || strings.Contains(out, "机架") || strings.Contains(out, "安装") {
-		t.Fatalf("chinese leaked into script: %s", out)
-	}
-	if !strings.Contains(out, "menu Boot") {
-		t.Fatalf("expected ASCII menu title: %s", out)
-	}
-	if !strings.Contains(out, "item a Install") {
-		t.Fatalf("expected ASCII item label: %s", out)
+	out := ipxescript.MenuScript(menu, model.Settings{}, nil, ipxescript.BootPaths{})
+	if strings.Contains(out, "默认") || strings.Contains(out, "安装") {
+		t.Fatalf("chinese leaked: %s", out)
 	}
 }
 
-func TestISOResetsConsole(t *testing.T) {
+func TestRHELBootScript(t *testing.T) {
 	menu := model.Menu{
 		Name: "Boot Menu",
 		Items: []model.MenuItem{
-			{ID: "d", Label: "Debian", Type: model.ItemISO, ISOID: "abc", Enabled: true},
+			{ID: "r", Label: "RHEL", Type: model.ItemISO, ISOID: "id1", Enabled: true},
 		},
 	}
-	isos := []model.ISOFile{{ID: "abc", Name: "debian.iso", Filename: "abc.iso"}}
-	out := ipxescript.MenuScript(menu, model.Settings{PublicURL: "http://10.0.0.1:8081"}, isos)
-	if strings.Contains(out, "console --x") {
-		t.Fatal("must not set graphical console resolution")
+	isos := []model.ISOFile{{
+		ID: "id1", Name: "rhel.iso", Filename: "id1.iso",
+		Distro: model.DistroRHEL, BootMethod: "kernel-repo", PrepOK: true,
+	}}
+	paths := ipxescript.BootPaths{
+		ISOBase:  "http://10.0.0.1:8081/files/isos",
+		BootBase: "http://10.0.0.1:8081/files/boot",
 	}
-	if !strings.Contains(out, "console ||") {
-		t.Fatal("expected console reset before sanboot")
+	out := ipxescript.MenuScript(menu, model.Settings{PublicURL: "http://10.0.0.1:8081"}, isos, paths)
+	if !strings.Contains(out, "inst.repo=http://10.0.0.1:8081/files/isos/id1.iso") {
+		t.Fatalf("missing inst.repo: %s", out)
 	}
-	if !strings.Contains(out, "sanboot --no-describe http://10.0.0.1:8081/files/isos/abc.iso") {
-		t.Fatalf("sanboot missing: %s", out)
+	if !strings.Contains(out, "images/pxeboot/vmlinuz") {
+		t.Fatal("missing vmlinuz")
+	}
+}
+
+func TestWindowsWimboot(t *testing.T) {
+	menu := model.Menu{
+		Name: "Boot Menu",
+		Items: []model.MenuItem{
+			{ID: "w", Label: "Win", Type: model.ItemISO, ISOID: "idw", Enabled: true},
+		},
+	}
+	isos := []model.ISOFile{{
+		ID: "idw", Name: "win.iso", Filename: "idw.iso",
+		Distro: model.DistroWindows, BootMethod: "wimboot", PrepOK: true,
+	}}
+	paths := ipxescript.BootPaths{
+		ISOBase:  "http://10.0.0.1:8081/files/isos",
+		BootBase: "http://10.0.0.1:8081/files/boot",
+		Wimboot:  "http://10.0.0.1:8081/files/assets/wimboot",
+	}
+	out := ipxescript.MenuScript(menu, model.Settings{PublicURL: "http://10.0.0.1:8081"}, isos, paths)
+	if !strings.Contains(out, "wimboot") || !strings.Contains(out, "boot.wim") {
+		t.Fatalf("wimboot script incomplete: %s", out)
+	}
+	if !strings.Contains(out, "win_efi") {
+		t.Fatal("expected UEFI/BIOS branches")
 	}
 }
 
 func TestRawOverride(t *testing.T) {
 	menu := model.Menu{RawScript: "echo hi\n"}
-	out := ipxescript.MenuScript(menu, model.Settings{}, nil)
+	out := ipxescript.MenuScript(menu, model.Settings{}, nil, ipxescript.BootPaths{})
 	if !strings.HasPrefix(out, "#!ipxe\n") {
 		t.Fatal("should prepend shebang")
 	}

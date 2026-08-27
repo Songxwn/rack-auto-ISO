@@ -18,24 +18,24 @@ type NetworkConfig struct {
 }
 
 type Settings struct {
-	PublicURL   string         `json:"publicUrl"`
-	ServerName  string         `json:"serverName"`
-	DefaultNet  NetworkConfig  `json:"defaultNetwork"`
-	ISONet      NetworkConfig  `json:"isoNetwork"` // network config baked into exported iPXE ISO
-	ChainURL    string         `json:"chainUrl"`   // override chain target; empty => {publicUrl}/boot.ipxe
-	UpdatedAt   time.Time      `json:"updatedAt"`
+	PublicURL  string        `json:"publicUrl"`
+	ServerName string        `json:"serverName"`
+	DefaultNet NetworkConfig `json:"defaultNetwork"`
+	ISONet     NetworkConfig `json:"isoNetwork"`
+	ChainURL   string        `json:"chainUrl"`
+	UpdatedAt  time.Time     `json:"updatedAt"`
 }
 
 type MenuItemType string
 
 const (
-	ItemChain  MenuItemType = "chain"
-	ItemKernel MenuItemType = "kernel"
+	ItemChain   MenuItemType = "chain"
+	ItemKernel  MenuItemType = "kernel"
 	ItemSanboot MenuItemType = "sanboot"
-	ItemISO    MenuItemType = "iso"
-	ItemShell  MenuItemType = "shell"
-	ItemExit   MenuItemType = "exit"
-	ItemCustom MenuItemType = "custom"
+	ItemISO     MenuItemType = "iso"
+	ItemShell   MenuItemType = "shell"
+	ItemExit    MenuItemType = "exit"
+	ItemCustom  MenuItemType = "custom"
 )
 
 type MenuItem struct {
@@ -47,7 +47,7 @@ type MenuItem struct {
 	Initrd  string       `json:"initrd,omitempty"`
 	Args    string       `json:"args,omitempty"`
 	ISOID   string       `json:"isoId,omitempty"`
-	Custom  string       `json:"custom,omitempty"` // raw iPXE lines for custom type
+	Custom  string       `json:"custom,omitempty"`
 	Enabled bool         `json:"enabled"`
 }
 
@@ -58,18 +58,35 @@ type Menu struct {
 	TimeoutSec  int        `json:"timeoutSec"`
 	DefaultItem string     `json:"defaultItem,omitempty"`
 	Items       []MenuItem `json:"items"`
-	RawScript   string     `json:"rawScript,omitempty"` // if set, used as-is instead of generated menu
+	RawScript   string     `json:"rawScript,omitempty"`
 	UpdatedAt   time.Time  `json:"updatedAt"`
 }
 
+// DistroKind is detected from ISO contents for tailored iPXE boot.
+type DistroKind string
+
+const (
+	DistroGeneric DistroKind = "generic"
+	DistroRHEL    DistroKind = "rhel"    // RHEL 8-10 / Rocky / Alma / CentOS Stream / Oracle
+	DistroESXi    DistroKind = "esxi"    // ESXi 6.7 - 9.x
+	DistroWindows DistroKind = "windows" // Windows installer ISO
+	DistroDebian  DistroKind = "debian"  // Debian installer
+	DistroUbuntu  DistroKind = "ubuntu"  // Ubuntu live/installer
+)
+
 type ISOFile struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Filename    string    `json:"filename"`
-	Size        int64     `json:"size"`
-	ContentType string    `json:"contentType,omitempty"`
-	UploadedAt  time.Time `json:"uploadedAt"`
-	Note        string    `json:"note,omitempty"`
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	Filename    string     `json:"filename"`
+	Size        int64      `json:"size"`
+	ContentType string     `json:"contentType,omitempty"`
+	UploadedAt  time.Time  `json:"uploadedAt"`
+	Note        string     `json:"note,omitempty"`
+	Distro      DistroKind `json:"distro,omitempty"`
+	BootMethod  string     `json:"bootMethod,omitempty"` // kernel-repo | esxi-mboot | wimboot | sanboot | debian-kernel
+	PrepDir     string     `json:"prepDir,omitempty"`    // relative under data/boot/<id>
+	PrepOK      bool       `json:"prepOk"`
+	PrepError   string     `json:"prepError,omitempty"`
 }
 
 type State struct {
