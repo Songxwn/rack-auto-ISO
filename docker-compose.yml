@@ -1,0 +1,35 @@
+# rack-auto-ISO — Docker Compose 部署
+#
+# 用法:
+#   export IPXE_PUBLIC_URL=http://192.168.1.10:8081
+#   docker compose up -d
+#
+# 镜像默认从 GHCR 拉取；本地开发可改用 build: .
+
+services:
+  ipxe-manager:
+    image: ghcr.io/songxwn/rack-auto-iso:${IPXE_IMAGE_TAG:-latest}
+    # build:
+    #   context: .
+    #   args:
+    #     VERSION: local
+    container_name: ipxe-manager
+    restart: unless-stopped
+    ports:
+      - "${IPXE_HOST_PORT:-8081}:8081"
+    environment:
+      IPXE_LISTEN: ":8081"
+      IPXE_DATA: /data
+      IPXE_ASSETS: /opt/ipxe-manager/assets
+      IPXE_PUBLIC_URL: ${IPXE_PUBLIC_URL:-}
+    volumes:
+      - ipxe-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8081/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  ipxe-data:

@@ -1,0 +1,8 @@
+.Git
+.github
+data
+dist
+*.md
+!assets/README.md
+.gitignore
+docker-compose*.yml

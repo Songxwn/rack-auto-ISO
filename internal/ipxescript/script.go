@@ -19,7 +19,7 @@ func EmbedScript(settings model.Settings) string {
 	if chain == "" {
 		base := strings.TrimRight(settings.PublicURL, "/")
 		if base == "" {
-			base = "http://${next-server}:8080"
+			base = "http://${next-server}:8081"
 		}
 		chain = base + "/boot.ipxe"
 	}
