@@ -16,7 +16,7 @@ jobs:
       - name: Install build deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential gcc-multilib liblzma-dev mtools
+          sudo apt-get install -y build-essential liblzma-dev mtools syslinux isolinux xorriso
       - name: Build iPXE assets
         run: bash scripts/build-ipxe-assets.sh assets
       - uses: actions/upload-artifact@v4
