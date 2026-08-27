@@ -51,7 +51,8 @@ func Prepare(isoPath, bootRoot, isoID string) Result {
 		err = prepUbuntu(isoPath, outDir)
 		res.BootMethod = "ubuntu-kernel"
 	default:
-		res.BootMethod = "sanboot"
+		// Whole ISO into RAM via memdisk (BIOS); UEFI falls back to sanboot in script.
+		res.BootMethod = "memdisk"
 		err = nil
 	}
 	if err != nil {

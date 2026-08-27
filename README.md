@@ -61,6 +61,8 @@ curl -fsS "http://127.0.0.1:8081/api/health"
 
 若 Debian 报 **Incorrect installation media** / 找不到安装介质：升级到 **v0.1.10+**，确认 Public URL 可被节点访问，然后 **重新上传** Debian ISO（会整盘解包为 HTTP 源，并尽量拉取 netboot 内核）。控制面需有 `bsdtar`/`7z`，且最好能访问 `deb.debian.org`（离线时仍可用 ISO 内 `install.amd` + 本地 mirror 参数）。
 
+**memdisk 整盘进内存**（v0.1.11+，仅 BIOS）：通用 ISO 默认用 syslinux `memdisk` 把整份 ISO 拉进 RAM 再启动；空闲内存须明显大于 ISO。UEFI 无 memdisk，会回退 `sanboot`。Debian 默仍是 HTTP mirror，可在 ISO 列表点「改用 memdisk」或上传时勾选强制。
+
 环境变量：`IPXE_LISTEN`、`IPXE_DATA`、`IPXE_PUBLIC_URL`、`IPXE_ASSETS`。  
 arm64 将资源名中的 `linux_amd64` 换成 `linux_arm64`。
 
@@ -82,7 +84,7 @@ git tag v0.1.4
 git push origin v0.1.4
 ```
 
-产物：多架构二进制包 + `assets/`（`ipxe.lkrn` / `ipxe.efi` / isolinux / isohdpfx）。
+产物：多架构二进制包 + `assets/`（`ipxe.lkrn` / `ipxe.efi` / isolinux / isohdpfx / `wimboot` / `memdisk`）。
 
 ## 开发说明
 

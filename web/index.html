@@ -119,11 +119,12 @@
 
     <section id="tab-isos" class="panel">
       <h2>ISO 仓库</h2>
-      <p class="hint">上传成功后自动识别 RHEL/Rocky/Alma、ESXi、Windows、Debian/Ubuntu 并准备引导文件（需服务器安装 <code>bsdtar</code> 或 <code>7z</code>），同时加入默认菜单。菜单标签仅 ASCII。</p>
+      <p class="hint">上传成功后自动识别 RHEL/Rocky/Alma、ESXi、Windows、Debian/Ubuntu 并准备引导文件（需服务器安装 <code>bsdtar</code> 或 <code>7z</code>），同时加入默认菜单。通用 ISO 默认 <strong>memdisk</strong>（BIOS 整盘进内存，空闲内存须大于 ISO）。Debian 默认 HTTP mirror；可点「改用 memdisk」。菜单标签仅 ASCII。</p>
       <form id="iso-form" class="form-inline">
         <label>显示名 <input name="name" /></label>
         <label>文件 <input name="file" type="file" accept=".iso,application/octet-stream" required /></label>
         <label>备注 <input name="note" /></label>
+        <label class="check"><input name="forceMemdisk" type="checkbox" /> 强制 memdisk</label>
         <button type="submit" class="btn primary">上传</button>
         <span id="iso-msg" class="msg"></span>
       </form>

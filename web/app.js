@@ -297,17 +297,39 @@ function renderISOs() {
       <td>${esc(iso.bootMethod || "-")}</td>
       <td>${fmtSize(iso.size)}</td>
       <td>${st}</td>
-      <td><button type="button" class="btn small danger">删除</button></td>
+      <td class="row-actions">
+        <button type="button" class="btn small" data-act="memdisk">改用 memdisk</button>
+        <button type="button" class="btn small danger" data-act="del">删除</button>
+      </td>
     `;
-    $("button", tr).addEventListener("click", async () => {
-      if (!confirm("删除 " + iso.name + " ?")) return;
-      try {
-        await api("/api/isos/" + iso.id, { method: "DELETE" });
-        await loadISOs();
-        await loadMenus();
-        if (state.currentMenuId) selectMenu(state.currentMenuId);
-      } catch (err) {
-        setMsg($("#iso-msg"), err.message, false);
+    tr.addEventListener("click", async (ev) => {
+      const btn = ev.target.closest("button");
+      if (!btn) return;
+      const act = btn.getAttribute("data-act");
+      if (act === "memdisk") {
+        try {
+          await api("/api/isos/" + iso.id, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ bootMethod: "memdisk" }),
+          });
+          await loadISOs();
+          setMsg($("#iso-msg"), "已改为 memdisk（BIOS 整盘进内存）");
+        } catch (err) {
+          setMsg($("#iso-msg"), err.message, false);
+        }
+        return;
+      }
+      if (act === "del") {
+        if (!confirm("删除 " + iso.name + " ?")) return;
+        try {
+          await api("/api/isos/" + iso.id, { method: "DELETE" });
+          await loadISOs();
+          await loadMenus();
+          if (state.currentMenuId) selectMenu(state.currentMenuId);
+        } catch (err) {
+          setMsg($("#iso-msg"), err.message, false);
+        }
       }
     });
     tb.appendChild(tr);
@@ -321,6 +343,7 @@ $("#iso-form").addEventListener("submit", async (e) => {
   fd.append("file", f.file.files[0]);
   if (f.name.value.trim()) fd.append("name", f.name.value.trim());
   if (f.note.value.trim()) fd.append("note", f.note.value.trim());
+  if (f.forceMemdisk && f.forceMemdisk.checked) fd.append("bootMethod", "memdisk");
   setMsg($("#iso-msg"), "上传中…");
   try {
     await api("/api/isos", { method: "POST", body: fd });
@@ -357,8 +380,10 @@ async function boot() {
     const ver = $("#version");
     if (ver) {
       ver.textContent = "v" + (h.version || "dev");
-      if (h.wimboot) ver.title = "wimboot available";
-      else ver.title = "wimboot missing (Windows ISO needs it)";
+      if (h.wimboot && h.memdisk) ver.title = "wimboot + memdisk available";
+      else if (h.wimboot) ver.title = "wimboot available; memdisk missing";
+      else if (h.memdisk) ver.title = "memdisk available; wimboot missing";
+      else ver.title = "wimboot/memdisk missing";
     }
   } catch {
     $("#health").textContent = "API unavailable";

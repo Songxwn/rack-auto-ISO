@@ -62,6 +62,7 @@ type BootPaths struct {
 	BootBase   string // http://host:8081/files/boot
 	ISOBase    string // http://host:8081/files/isos
 	Wimboot    string // full URL to wimboot, optional
+	Memdisk    string // full URL to memdisk, optional
 }
 
 // MenuScript renders a menu (or returns raw script override).
@@ -89,6 +90,9 @@ func MenuScript(menu model.Menu, settings model.Settings, isos []model.ISOFile, 
 	}
 	if paths.Wimboot == "" && paths.AssetsBase != "" {
 		paths.Wimboot = paths.AssetsBase + "/wimboot"
+	}
+	if paths.Memdisk == "" && paths.AssetsBase != "" {
+		paths.Memdisk = paths.AssetsBase + "/memdisk"
 	}
 
 	isoByID := map[string]model.ISOFile{}
@@ -166,7 +170,7 @@ func MenuScript(menu model.Menu, settings model.Settings, isos []model.ISOFile, 
 				b.WriteString("goto start\n")
 			} else {
 				b.WriteString(resetVideoBeforeOS())
-				b.WriteString(fmt.Sprintf("sanboot %s || goto start\n", url))
+				b.WriteString(memdiskOrSanboot(it.ID, url, paths))
 			}
 		case model.ItemISO:
 			f, ok := isoByID[it.ISOID]
@@ -239,10 +243,11 @@ func bootISOItem(f model.ISOFile, paths BootPaths, vlan int) string {
 	b.WriteString(resetVideoBeforeOS())
 
 	method := f.BootMethod
-	if !f.PrepOK {
-		method = "sanboot"
+	if !f.PrepOK && method != "memdisk" {
+		method = "memdisk"
 	}
-	if f.Distro == model.DistroDebian {
+	// Debian default: HTTP mirror. Explicit memdisk overrides.
+	if f.Distro == model.DistroDebian && method != "memdisk" {
 		method = "debian-mirror"
 	}
 	vlanArgs := vlanKernelArgs(vlan)
@@ -308,9 +313,43 @@ func bootISOItem(f model.ISOFile, paths BootPaths, vlan int) string {
 			b.WriteString(fmt.Sprintf("initrd %s/casper/initrd\n", bootURL))
 		}
 		b.WriteString("boot || goto start\n")
+	case "memdisk", "sanboot":
+		fallthrough
 	default:
-		b.WriteString(fmt.Sprintf("sanboot --no-describe %s || goto start\n", isoURL))
+		b.WriteString(memdiskOrSanboot(f.ID, isoURL, paths))
 	}
+	return b.String()
+}
+
+// memdiskOrSanboot loads the entire ISO into RAM with syslinux memdisk (BIOS).
+// UEFI has no memdisk; falls back to HTTP sanboot.
+func memdiskOrSanboot(label, isoURL string, paths BootPaths) string {
+	var b strings.Builder
+	mem := paths.Memdisk
+	if mem == "" && paths.AssetsBase != "" {
+		mem = paths.AssetsBase + "/memdisk"
+	}
+	safe := ascii.MenuText(label)
+	if safe == "" {
+		safe = "iso"
+	}
+	safe = strings.ReplaceAll(safe, " ", "_")
+	efiL := "md_efi_" + safe
+	biosL := "md_bios_" + safe
+
+	if mem == "" {
+		b.WriteString(fmt.Sprintf("sanboot --no-describe %s || goto start\n", isoURL))
+		return b.String()
+	}
+	b.WriteString(fmt.Sprintf("iseq ${platform} efi && goto %s || goto %s\n", efiL, biosL))
+	b.WriteString(fmt.Sprintf(":%s\n", efiL))
+	b.WriteString("echo memdisk is BIOS-only - UEFI sanboot fallback\n")
+	b.WriteString(fmt.Sprintf("sanboot --no-describe %s || goto start\n", isoURL))
+	b.WriteString(fmt.Sprintf(":%s\n", biosL))
+	b.WriteString("echo Loading entire ISO into RAM (need free RAM greater than ISO size)\n")
+	b.WriteString(fmt.Sprintf("kernel %s iso raw\n", mem))
+	b.WriteString(fmt.Sprintf("initrd %s\n", isoURL))
+	b.WriteString("boot || goto start\n")
 	return b.String()
 }
 

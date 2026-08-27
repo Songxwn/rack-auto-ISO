@@ -50,24 +50,27 @@ func Open(dir string) (*Store, error) {
 	}
 	sanitizeMenusLocked(&s.st)
 	syncISOMenuItemsLocked(&s.st)
-	migrateDebianBootLocked(&s.st)
+	migrateBootMethodsLocked(&s.st)
 	if err := s.persistLocked(); err != nil {
 		return nil, err
 	}
 	return s, nil
 }
 
-func migrateDebianBootLocked(st *model.State) {
+func migrateBootMethodsLocked(st *model.State) {
 	for i := range st.ISOs {
 		iso := &st.ISOs[i]
-		if iso.Distro != model.DistroDebian {
+		if iso.Distro == model.DistroDebian {
+			// Legacy kernel-only / sanboot cannot feed d-i a usable install source.
+			if iso.BootMethod == "debian-kernel" || iso.BootMethod == "sanboot" || iso.BootMethod == "" {
+				iso.BootMethod = "debian-mirror"
+				iso.PrepOK = false
+				iso.PrepError = "re-upload Debian ISO for HTTP mirror + netboot"
+			}
 			continue
 		}
-		// Legacy kernel-only / sanboot cannot feed d-i a usable install source.
-		if iso.BootMethod == "debian-kernel" || iso.BootMethod == "sanboot" || iso.BootMethod == "" {
-			iso.BootMethod = "debian-mirror"
-			iso.PrepOK = false
-			iso.PrepError = "re-upload Debian ISO for HTTP mirror + netboot"
+		if iso.Distro == model.DistroGeneric && (iso.BootMethod == "sanboot" || iso.BootMethod == "") {
+			iso.BootMethod = "memdisk"
 		}
 	}
 }

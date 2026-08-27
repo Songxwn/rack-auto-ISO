@@ -49,6 +49,7 @@ func (s *Server) bootPaths() ipxescript.BootPaths {
 		p.BootBase = base + "/files/boot"
 		p.AssetsBase = base + "/files/assets"
 		p.Wimboot = base + "/files/assets/wimboot"
+		p.Memdisk = base + "/files/assets/memdisk"
 	}
 	return p
 }
@@ -79,6 +80,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/menus/{id}/preview", s.previewMenu)
 	mux.HandleFunc("GET /api/isos", s.listISOs)
 	mux.HandleFunc("POST /api/isos", s.uploadISO)
+	mux.HandleFunc("PUT /api/isos/{id}", s.updateISO)
 	mux.HandleFunc("DELETE /api/isos/{id}", s.deleteISO)
 	mux.HandleFunc("GET /api/iso/export", s.exportISO)
 	mux.HandleFunc("GET /api/iso/bundle.zip", s.exportBundle)
@@ -109,6 +111,7 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 		"version": s.version,
 		"assets":  s.assets != "",
 		"wimboot": s.assets != "" && fileExists(filepath.Join(s.assets, "wimboot")),
+		"memdisk": s.assets != "" && fileExists(filepath.Join(s.assets, "memdisk")),
 	})
 }
 
@@ -250,7 +253,7 @@ func (s *Server) uploadISO(w http.ResponseWriter, r *http.Request) {
 		ContentType: hdr.Header.Get("Content-Type"),
 		Note:        r.FormValue("note"),
 		Distro:      model.DistroGeneric,
-		BootMethod:  "sanboot",
+		BootMethod:  "memdisk",
 	}
 
 	prep := isoprep.Prepare(dstPath, s.store.BootDir(), id)
@@ -262,16 +265,64 @@ func (s *Server) uploadISO(w http.ResponseWriter, r *http.Request) {
 		meta.PrepOK = false
 		// Debian still boots via mirror params; keep method for UI clarity.
 		if prep.Distro != model.DistroDebian {
-			meta.BootMethod = "sanboot"
+			meta.BootMethod = "memdisk"
 		}
 	} else {
 		meta.PrepOK = true
+	}
+
+	// Optional override: force memdisk for any distro (BIOS RAM boot).
+	if strings.EqualFold(r.FormValue("bootMethod"), "memdisk") {
+		meta.BootMethod = "memdisk"
 	}
 
 	saved, err := s.store.AddISO(meta)
 	if err != nil {
 		_ = os.Remove(dstPath)
 		_ = os.RemoveAll(filepath.Join(s.store.BootDir(), id))
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, saved)
+}
+
+func (s *Server) updateISO(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	cur, err := s.store.GetISO(id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var body struct {
+		BootMethod string `json:"bootMethod"`
+		Name       string `json:"name"`
+		Note       string `json:"note"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if body.BootMethod != "" {
+		switch body.BootMethod {
+		case "memdisk", "sanboot", "debian-mirror", "kernel-repo", "esxi-mboot", "wimboot", "ubuntu-kernel":
+			cur.BootMethod = body.BootMethod
+		default:
+			http.Error(w, "unsupported bootMethod", http.StatusBadRequest)
+			return
+		}
+	}
+	if body.Name != "" {
+		cur.Name = body.Name
+	}
+	if body.Note != "" {
+		cur.Note = body.Note
+	}
+	saved, err := s.store.UpdateISO(cur)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

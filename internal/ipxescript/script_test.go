@@ -105,6 +105,35 @@ func TestWindowsWimboot(t *testing.T) {
 	}
 }
 
+func TestMemdiskBoot(t *testing.T) {
+	menu := model.Menu{
+		Name: "Boot Menu",
+		Items: []model.MenuItem{
+			{ID: "g", Label: "Generic", Type: model.ItemISO, ISOID: "gid", Enabled: true},
+		},
+	}
+	isos := []model.ISOFile{{
+		ID: "gid", Name: "custom.iso", Filename: "gid.iso",
+		Distro: model.DistroGeneric, BootMethod: "memdisk", PrepOK: true,
+	}}
+	paths := ipxescript.BootPaths{
+		PublicBase: "http://10.0.0.1:8081",
+		ISOBase:    "http://10.0.0.1:8081/files/isos",
+		BootBase:   "http://10.0.0.1:8081/files/boot",
+		Memdisk:    "http://10.0.0.1:8081/files/assets/memdisk",
+	}
+	out := ipxescript.MenuScript(menu, model.Settings{PublicURL: "http://10.0.0.1:8081"}, isos, paths)
+	if !strings.Contains(out, "kernel http://10.0.0.1:8081/files/assets/memdisk iso raw") {
+		t.Fatalf("missing memdisk kernel: %s", out)
+	}
+	if !strings.Contains(out, "initrd http://10.0.0.1:8081/files/isos/gid.iso") {
+		t.Fatalf("missing ISO initrd: %s", out)
+	}
+	if !strings.Contains(out, "md_bios_gid") {
+		t.Fatalf("missing BIOS label: %s", out)
+	}
+}
+
 func TestDebianMirrorBoot(t *testing.T) {
 	menu := model.Menu{
 		Name: "Boot Menu",

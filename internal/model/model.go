@@ -84,7 +84,7 @@ type ISOFile struct {
 	UploadedAt  time.Time  `json:"uploadedAt"`
 	Note        string     `json:"note,omitempty"`
 	Distro      DistroKind `json:"distro,omitempty"`
-	BootMethod  string     `json:"bootMethod,omitempty"` // kernel-repo | esxi-mboot | wimboot | sanboot | debian-mirror | ubuntu-kernel
+	BootMethod  string     `json:"bootMethod,omitempty"` // kernel-repo | esxi-mboot | wimboot | memdisk | sanboot | debian-mirror | ubuntu-kernel
 	PrepDir     string     `json:"prepDir,omitempty"`    // relative under data/boot/<id>
 	PrepOK      bool       `json:"prepOk"`
 	PrepError   string     `json:"prepError,omitempty"`
