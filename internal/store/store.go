@@ -59,10 +59,15 @@ func Open(dir string) (*Store, error) {
 
 func migrateDebianBootLocked(st *model.State) {
 	for i := range st.ISOs {
-		if st.ISOs[i].Distro == model.DistroDebian && st.ISOs[i].BootMethod == "debian-kernel" {
-			st.ISOs[i].BootMethod = "sanboot"
-			st.ISOs[i].PrepOK = true
-			st.ISOs[i].PrepError = ""
+		iso := &st.ISOs[i]
+		if iso.Distro != model.DistroDebian {
+			continue
+		}
+		// Legacy kernel-only / sanboot cannot feed d-i a usable install source.
+		if iso.BootMethod == "debian-kernel" || iso.BootMethod == "sanboot" || iso.BootMethod == "" {
+			iso.BootMethod = "debian-mirror"
+			iso.PrepOK = false
+			iso.PrepError = "re-upload Debian ISO for HTTP mirror + netboot"
 		}
 	}
 }

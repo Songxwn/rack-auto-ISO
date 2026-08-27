@@ -259,8 +259,11 @@ func (s *Server) uploadISO(w http.ResponseWriter, r *http.Request) {
 	meta.PrepDir = prep.PrepDir
 	if prep.Error != "" {
 		meta.PrepError = prep.Error
-		meta.BootMethod = "sanboot"
 		meta.PrepOK = false
+		// Debian still boots via mirror params; keep method for UI clarity.
+		if prep.Distro != model.DistroDebian {
+			meta.BootMethod = "sanboot"
+		}
 	} else {
 		meta.PrepOK = true
 	}

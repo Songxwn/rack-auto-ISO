@@ -45,12 +45,8 @@ func Prepare(isoPath, bootRoot, isoID string) Result {
 		err = prepWindows(isoPath, outDir)
 		res.BootMethod = "wimboot"
 	case model.DistroDebian:
-		// debian-installer from DVD/netinst expects a CD/ISO device for packages.
-		// Booting only vmlinuz/initrd reaches the UI but then fails with
-		// "no installation media". Prefer sanboot so the ISO appears as a CD.
-		_ = prepDebian(isoPath, outDir) // optional extract for manual kernel menu items
-		res.BootMethod = "sanboot"
-		err = nil
+		err = prepDebian(isoPath, outDir)
+		res.BootMethod = "debian-mirror"
 	case model.DistroUbuntu:
 		err = prepUbuntu(isoPath, outDir)
 		res.BootMethod = "ubuntu-kernel"
@@ -304,25 +300,101 @@ func prepWindows(isoPath, dest string) error {
 }
 
 func prepDebian(isoPath, dest string) error {
-	candidates := [][]string{
-		{"install.amd/vmlinuz", "install.amd/initrd.gz"},
-		{"install.a64/vmlinuz", "install.a64/initrd.gz"},
-		{"install.amd64/vmlinuz", "install.amd64/initrd.gz"},
+	// Full tree becomes a local HTTP mirror (dists/ + pool/).
+	if err := extractAll(isoPath, dest); err != nil {
+		return fmt.Errorf("extract debian iso: %w", err)
 	}
-	var last error
-	for _, pair := range candidates {
-		if err := extract(isoPath, dest, pair...); err == nil {
-			if findFile(dest, "vmlinuz") != "" && findFile(dest, "initrd.gz") != "" {
-				return nil
+	if findFile(dest, "vmlinuz") == "" {
+		return fmt.Errorf("debian vmlinuz missing after extract")
+	}
+	suite := detectDebianSuite(dest)
+	_ = os.WriteFile(filepath.Join(dest, ".suite"), []byte(suite+"\n"), 0o644)
+
+	// Prefer official netboot initrd (skips cdrom-detect). Falls back to ISO's install.amd.
+	if err := fetchDebianNetboot(dest, suite); err != nil {
+		_ = os.WriteFile(filepath.Join(dest, ".netboot-error"), []byte(err.Error()), 0o644)
+		// still OK — boot path can use install.amd with mirror= params
+	}
+	return nil
+}
+
+func detectDebianSuite(dest string) string {
+	// dists/<codename>/Release
+	dists := filepath.Join(dest, "dists")
+	entries, err := os.ReadDir(dists)
+	if err == nil {
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
 			}
-		} else {
-			last = err
+			name := e.Name()
+			switch name {
+			case "stable", "testing", "unstable", "oldstable":
+				continue
+			default:
+				if fileExists(filepath.Join(dists, name, "Release")) {
+					return name
+				}
+			}
+		}
+		for _, e := range entries {
+			if e.IsDir() && fileExists(filepath.Join(dists, e.Name(), "Release")) {
+				return e.Name()
+			}
 		}
 	}
-	if last == nil {
-		last = fmt.Errorf("debian installer kernel not found")
+	// .disk/info — "Debian GNU/Linux 12.5.0 ..."
+	if data, err := os.ReadFile(filepath.Join(dest, ".disk", "info")); err == nil {
+		s := string(data)
+		for _, code := range []string{"trixie", "bookworm", "bullseye", "buster", "sid"} {
+			if strings.Contains(strings.ToLower(s), code) {
+				return code
+			}
+		}
 	}
-	return last
+	return "bookworm"
+}
+
+func fetchDebianNetboot(dest, suite string) error {
+	if suite == "" {
+		suite = "bookworm"
+	}
+	netDir := filepath.Join(dest, "netboot")
+	if err := os.MkdirAll(netDir, 0o755); err != nil {
+		return err
+	}
+	base := fmt.Sprintf(
+		"https://deb.debian.org/debian/dists/%s/main/installer-amd64/current/images/netboot/debian-installer/amd64",
+		suite,
+	)
+	if err := httpDownload(base+"/linux", filepath.Join(netDir, "linux")); err != nil {
+		// try stable alias
+		base2 := "https://deb.debian.org/debian/dists/stable/main/installer-amd64/current/images/netboot/debian-installer/amd64"
+		if err2 := httpDownload(base2+"/linux", filepath.Join(netDir, "linux")); err2 != nil {
+			return fmt.Errorf("netboot linux: %v / %v", err, err2)
+		}
+		base = base2
+	}
+	if err := httpDownload(base+"/initrd.gz", filepath.Join(netDir, "initrd.gz")); err != nil {
+		return fmt.Errorf("netboot initrd: %w", err)
+	}
+	return nil
+}
+
+func httpDownload(url, dest string) error {
+	cmd := exec.Command("curl", "-fsSL", "--connect-timeout", "20", "--max-time", "300", "-o", dest, url)
+	if _, err := exec.LookPath("curl"); err != nil {
+		cmd = exec.Command("wget", "-q", "-O", dest, url)
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
+	}
+	fi, err := os.Stat(dest)
+	if err != nil || fi.Size() < 1024 {
+		return fmt.Errorf("download too small or missing: %s", dest)
+	}
+	return nil
 }
 
 func prepUbuntu(isoPath, dest string) error {

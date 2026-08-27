@@ -59,6 +59,8 @@ curl -fsS "http://127.0.0.1:8081/api/health"
 
 若使用 **VLAN 装机网**：在「导出 ISO 内嵌网络」填写 VLAN ID（1–4094），并与「默认网络」保持一致；交换机口须为 Trunk。重新导出 iPXE ISO 后，会先 `vcreate` 再 DHCP，再进入菜单并拉取安装源。
 
+若 Debian 报 **Incorrect installation media** / 找不到安装介质：升级到 **v0.1.10+**，确认 Public URL 可被节点访问，然后 **重新上传** Debian ISO（会整盘解包为 HTTP 源，并尽量拉取 netboot 内核）。控制面需有 `bsdtar`/`7z`，且最好能访问 `deb.debian.org`（离线时仍可用 ISO 内 `install.amd` + 本地 mirror 参数）。
+
 环境变量：`IPXE_LISTEN`、`IPXE_DATA`、`IPXE_PUBLIC_URL`、`IPXE_ASSETS`。  
 arm64 将资源名中的 `linux_amd64` 换成 `linux_arm64`。
 

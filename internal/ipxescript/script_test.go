@@ -105,6 +105,37 @@ func TestWindowsWimboot(t *testing.T) {
 	}
 }
 
+func TestDebianMirrorBoot(t *testing.T) {
+	menu := model.Menu{
+		Name: "Boot Menu",
+		Items: []model.MenuItem{
+			{ID: "d", Label: "Debian", Type: model.ItemISO, ISOID: "deb1", Enabled: true},
+		},
+	}
+	isos := []model.ISOFile{{
+		ID: "deb1", Name: "debian.iso", Filename: "deb1.iso",
+		Distro: model.DistroDebian, BootMethod: "sanboot", PrepOK: true,
+	}}
+	paths := ipxescript.BootPaths{
+		PublicBase: "http://10.0.0.1:8081",
+		ISOBase:    "http://10.0.0.1:8081/files/isos",
+		BootBase:   "http://10.0.0.1:8081/files/boot",
+	}
+	out := ipxescript.MenuScript(menu, model.Settings{PublicURL: "http://10.0.0.1:8081"}, isos, paths)
+	if strings.Contains(out, "sanboot") {
+		t.Fatalf("Debian must not sanboot: %s", out)
+	}
+	if !strings.Contains(out, "mirror/http/hostname=10.0.0.1:8081") {
+		t.Fatalf("missing mirror hostname: %s", out)
+	}
+	if !strings.Contains(out, "mirror/http/directory=/files/boot/deb1/") {
+		t.Fatalf("missing mirror directory: %s", out)
+	}
+	if !strings.Contains(out, "allow_unauthenticated=true") {
+		t.Fatalf("missing allow_unauthenticated: %s", out)
+	}
+}
+
 func TestVLANEmbed(t *testing.T) {
 	s := ipxescript.EmbedScript(model.Settings{
 		ServerName: "test",

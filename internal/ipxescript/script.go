@@ -242,9 +242,8 @@ func bootISOItem(f model.ISOFile, paths BootPaths, vlan int) string {
 	if !f.PrepOK {
 		method = "sanboot"
 	}
-	// Debian d-i needs the ISO as a CD/DVD device; kernel-only boot has no media.
 	if f.Distro == model.DistroDebian {
-		method = "sanboot"
+		method = "debian-mirror"
 	}
 	vlanArgs := vlanKernelArgs(vlan)
 
@@ -299,29 +298,9 @@ func bootISOItem(f model.ISOFile, paths BootPaths, vlan int) string {
 		b.WriteString(fmt.Sprintf("initrd -n boot.sdi %s/%s\n", bootURL, sdi))
 		b.WriteString(fmt.Sprintf("initrd -n boot.wim %s/sources/boot.wim\n", bootURL))
 		b.WriteString("boot || goto start\n")
-	case "debian-kernel":
-		// Legacy method: kernel/initrd alone has no CD. Prefer sanboot of the ISO.
-		b.WriteString("echo Debian needs ISO media - trying sanboot\n")
-		b.WriteString(fmt.Sprintf("sanboot --no-describe %s || goto debian_net\n", isoURL))
-		b.WriteString(":debian_net\n")
-		vmlinuz := "install.amd/vmlinuz"
-		initrd := "install.amd/initrd.gz"
-		if prepRel(f.PrepDir, "vmlinuz") != "" {
-			if r := findRel(f.PrepDir, "vmlinuz"); r != "" {
-				vmlinuz = r
-			}
-			if r := findRel(f.PrepDir, "initrd.gz"); r != "" {
-				initrd = r
-			}
-		}
-		// Network mirror fallback (needs Internet or a local Debian mirror).
-		host, dir := mirrorFromPublic(paths.PublicBase)
-		b.WriteString(fmt.Sprintf("kernel %s/%s vga=normal nomodeset%s mirror/country=manual mirror/protocol=http mirror/http/hostname=%s mirror/http/directory=%s mirror/suite=stable cdrom-detect/failed=true --- quiet\n",
-			bootURL, vmlinuz, vlanArgs, host, dir))
-		b.WriteString(fmt.Sprintf("initrd %s/%s\n", bootURL, initrd))
-		b.WriteString("boot || goto start\n")
+	case "debian-mirror", "debian-kernel":
+		b.WriteString(debianMirrorBoot(f, paths, bootURL, vlanArgs))
 	case "ubuntu-kernel":
-		// Provide ISO URL for casper; also try sanboot if live rootfs fetch fails later.
 		b.WriteString(fmt.Sprintf("kernel %s/casper/vmlinuz boot=casper url=%s ignore_uuid only-ubiquity nomodeset%s ---\n", bootURL, isoURL, vlanArgs))
 		if prepHas(f.PrepDir, "initrd.lz") {
 			b.WriteString(fmt.Sprintf("initrd %s/casper/initrd.lz\n", bootURL))
@@ -330,32 +309,83 @@ func bootISOItem(f model.ISOFile, paths BootPaths, vlan int) string {
 		}
 		b.WriteString("boot || goto start\n")
 	default:
-		// Including DistroDebian with BootMethod sanboot
 		b.WriteString(fmt.Sprintf("sanboot --no-describe %s || goto start\n", isoURL))
 	}
 	return b.String()
 }
 
-func mirrorFromPublic(publicBase string) (host, dir string) {
-	host = "deb.debian.org"
-	dir = "/debian"
+func debianMirrorBoot(f model.ISOFile, paths BootPaths, bootURL, vlanArgs string) string {
+	var b strings.Builder
+	host, dir := httpMirrorParts(paths.PublicBase, f.ID)
+	suite := "bookworm"
+	if f.PrepDir != "" {
+		if data, err := os.ReadFile(filepath.Join(f.PrepDir, ".suite")); err == nil {
+			if s := strings.TrimSpace(string(data)); s != "" {
+				suite = s
+			}
+		}
+	}
+	// Common d-i args: use extracted ISO tree as HTTP mirror; skip CDROM path.
+	args := fmt.Sprintf(
+		"vga=normal nomodeset%s "+
+			"mirror/country=manual mirror/protocol=http "+
+			"mirror/http/hostname=%s mirror/http/directory=%s "+
+			"mirror/suite=%s mirror/udeb/suite=%s "+
+			"debian-installer/allow_unauthenticated=true "+
+			"anna/retriever=net-retriever "+
+			"cdrom-detect/failed=true ",
+		vlanArgs, host, dir, suite, suite,
+	)
+
+	netLinux := bootURL + "/netboot/linux"
+	netInitrd := bootURL + "/netboot/initrd.gz"
+	hasNetboot := f.PrepDir != "" && fileExists(filepath.Join(f.PrepDir, "netboot", "linux")) &&
+		fileExists(filepath.Join(f.PrepDir, "netboot", "initrd.gz"))
+
+	if hasNetboot {
+		b.WriteString("echo Debian netboot + local HTTP mirror\n")
+		b.WriteString(fmt.Sprintf("kernel %s %s ---\n", netLinux, args))
+		b.WriteString(fmt.Sprintf("initrd %s\n", netInitrd))
+		b.WriteString("boot || goto start\n")
+		return b.String()
+	}
+
+	vmlinuz := "install.amd/vmlinuz"
+	initrd := "install.amd/initrd.gz"
+	if r := findRel(f.PrepDir, "vmlinuz"); r != "" {
+		vmlinuz = r
+	}
+	if r := findRel(f.PrepDir, "initrd.gz"); r != "" {
+		initrd = r
+	}
+	b.WriteString("echo Debian install.amd + local HTTP mirror (re-upload ISO on online server for netboot initrd)\n")
+	b.WriteString(fmt.Sprintf("kernel %s/%s %s ---\n", bootURL, vmlinuz, args))
+	b.WriteString(fmt.Sprintf("initrd %s/%s\n", bootURL, initrd))
+	b.WriteString("boot || goto start\n")
+	return b.String()
+}
+
+func httpMirrorParts(publicBase, isoID string) (host, directory string) {
+	host = "127.0.0.1:8081"
+	directory = "/files/boot/" + isoID + "/"
 	publicBase = strings.TrimSpace(publicBase)
 	if publicBase == "" {
-		return host, dir
+		return host, directory
 	}
-	// http://192.168.1.10:8081 → use that host with /debian if user runs a mirror;
-	// otherwise keep deb.debian.org (sanboot path is preferred for local ISO).
-	u := publicBase
-	u = strings.TrimPrefix(u, "https://")
-	u = strings.TrimPrefix(u, "http://")
+	u := strings.TrimPrefix(strings.TrimPrefix(publicBase, "https://"), "http://")
+	u = strings.TrimRight(u, "/")
 	if i := strings.Index(u, "/"); i >= 0 {
 		u = u[:i]
 	}
 	if u != "" {
-		// Still default directory to official mirror path; local ISO is via sanboot.
-		_ = u
+		host = u
 	}
-	return host, dir
+	return host, directory
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
 }
 
 func prepHas(prepDir, name string) bool {
