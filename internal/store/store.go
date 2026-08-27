@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Songxwn/rack-auto-ISO/internal/ascii"
 	"github.com/Songxwn/rack-auto-ISO/internal/model"
 	"github.com/google/uuid"
 )
@@ -47,6 +48,11 @@ func Open(dir string) (*Store, error) {
 	if len(s.st.Menus) == 0 {
 		s.st.Menus = []model.Menu{defaultMenu()}
 	}
+	sanitizeMenusLocked(&s.st)
+	syncISOMenuItemsLocked(&s.st)
+	if err := s.persistLocked(); err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -68,16 +74,94 @@ func defaultState() model.State {
 func defaultMenu() model.Menu {
 	now := time.Now().UTC()
 	return model.Menu{
-		ID:         "default",
-		Name:       "默认启动菜单",
-		Description: "机架自动装机菜单",
-		TimeoutSec: 30,
+		ID:          "default",
+		Name:        "Boot Menu",
+		Description: "rack-auto-ISO",
+		TimeoutSec:  30,
 		Items: []model.MenuItem{
 			{ID: "shell", Label: "iPXE Shell", Type: model.ItemShell, Enabled: true},
-			{ID: "exit", Label: "退出 / 继续 BIOS", Type: model.ItemExit, Enabled: true},
+			{ID: "exit", Label: "Exit / continue BIOS", Type: model.ItemExit, Enabled: true},
 		},
 		UpdatedAt: now,
 	}
+}
+
+func sanitizeMenusLocked(st *model.State) {
+	for i := range st.Menus {
+		m := &st.Menus[i]
+		if n := ascii.MenuText(m.Name); n != "" {
+			m.Name = n
+		} else {
+			m.Name = "Boot Menu"
+		}
+		m.Description = ascii.MenuText(m.Description)
+		for j := range m.Items {
+			it := &m.Items[j]
+			it.Label = ascii.MenuText(it.Label)
+			if it.Label == "" {
+				it.Label = it.ID
+			}
+		}
+	}
+}
+
+// syncISOMenuItemsLocked ensures every ISO has a default-menu entry (ASCII label).
+func syncISOMenuItemsLocked(st *model.State) {
+	idx := -1
+	for i := range st.Menus {
+		if st.Menus[i].ID == "default" {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		st.Menus = append([]model.Menu{defaultMenu()}, st.Menus...)
+		idx = 0
+	}
+	menu := &st.Menus[idx]
+	have := map[string]bool{}
+	for _, it := range menu.Items {
+		if it.ISOID != "" {
+			have[it.ISOID] = true
+		}
+	}
+	changed := false
+	for _, iso := range st.ISOs {
+		if have[iso.ID] {
+			continue
+		}
+		menu.Items = insertISOItem(menu.Items, isoMenuItem(iso))
+		have[iso.ID] = true
+		changed = true
+	}
+	if changed {
+		menu.UpdatedAt = time.Now().UTC()
+	}
+}
+
+func isoMenuItem(iso model.ISOFile) model.MenuItem {
+	return model.MenuItem{
+		ID:      ascii.ItemID("iso_", iso.ID),
+		Label:   ascii.MenuLabelFromName(iso.Name, iso.ID),
+		Type:    model.ItemISO,
+		ISOID:   iso.ID,
+		Enabled: true,
+	}
+}
+
+func insertISOItem(items []model.MenuItem, item model.MenuItem) []model.MenuItem {
+	insertAt := len(items)
+	for j, it := range items {
+		if it.Type == model.ItemShell || it.Type == model.ItemExit {
+			insertAt = j
+			break
+		}
+	}
+	out := make([]model.MenuItem, 0, len(items)+1)
+	out = append(out, items[:insertAt]...)
+	out = append(out, item)
+	out = append(out, items[insertAt:]...)
+	return out
 }
 
 func (s *Store) DataDir() string { return s.dir }
@@ -141,10 +225,20 @@ func (s *Store) UpsertMenu(m model.Menu) (model.Menu, error) {
 	if m.ID == "" {
 		m.ID = uuid.NewString()
 	}
+	m.Name = ascii.MenuText(m.Name)
+	if m.Name == "" {
+		m.Name = "Boot Menu"
+	}
+	m.Description = ascii.MenuText(m.Description)
 	m.UpdatedAt = time.Now().UTC()
 	for i := range m.Items {
 		if m.Items[i].ID == "" {
 			m.Items[i].ID = uuid.NewString()
+		}
+		m.Items[i].ID = ascii.MenuText(m.Items[i].ID)
+		m.Items[i].Label = ascii.MenuText(m.Items[i].Label)
+		if m.Items[i].Label == "" {
+			m.Items[i].Label = m.Items[i].ID
 		}
 	}
 	found := false
@@ -213,6 +307,7 @@ func (s *Store) AddISO(meta model.ISOFile) (model.ISOFile, error) {
 	}
 	meta.UploadedAt = time.Now().UTC()
 	s.st.ISOs = append(s.st.ISOs, meta)
+	syncISOMenuItemsLocked(&s.st)
 	if err := s.persistLocked(); err != nil {
 		return model.ISOFile{}, err
 	}
@@ -237,6 +332,19 @@ func (s *Store) DeleteISO(id string) error {
 		return ErrNotFound
 	}
 	s.st.ISOs = out
+
+	for i := range s.st.Menus {
+		items := s.st.Menus[i].Items[:0]
+		for _, it := range s.st.Menus[i].Items {
+			if it.ISOID == id {
+				continue
+			}
+			items = append(items, it)
+		}
+		s.st.Menus[i].Items = items
+		s.st.Menus[i].UpdatedAt = time.Now().UTC()
+	}
+
 	if err := s.persistLocked(); err != nil {
 		return err
 	}

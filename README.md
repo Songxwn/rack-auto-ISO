@@ -9,7 +9,8 @@
 
 - **Web 管理**：服务器 Public URL、DHCP/静态网络、菜单可视化编辑、原始脚本覆盖
 - **引导服务**：`/boot.ipxe`、`/menu.ipxe`、`/files/isos/...`
-- **ISO 仓库**：上传后可在菜单项里用 `iso` / `sanboot` 引用
+- **ISO 仓库**：上传后自动加入默认启动菜单（`iso` / sanboot）
+- 菜单文案仅使用 **ASCII/英文**（iPXE 菜单不支持中文显示）
 - **导出介质**：
   - `ipxe-custom.iso`：BIOS（isolinux+INITRD）+ UEFI（FAT `efi.img` ESP）isohybrid
   - `bundle.zip` / `embed.ipxe`

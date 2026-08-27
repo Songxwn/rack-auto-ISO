@@ -78,6 +78,7 @@
         <h2>启动菜单</h2>
         <button type="button" id="btn-new-menu" class="btn">新建菜单</button>
       </div>
+      <p class="hint">菜单标题与项标签请使用英文/ASCII（iPXE 无法可靠显示中文）。上传 ISO 后会自动加入默认菜单。</p>
       <div class="split">
         <aside>
           <ul id="menu-list" class="list"></ul>
@@ -114,6 +115,7 @@
 
     <section id="tab-isos" class="panel">
       <h2>ISO 仓库</h2>
+      <p class="hint">上传成功后自动写入默认启动菜单（标签取文件名中的 ASCII；纯中文名则用 ISO-xxxxxxxx）。删除 ISO 时同步移除对应菜单项。</p>
       <form id="iso-form" class="form-inline">
         <label>显示名 <input name="name" /></label>
         <label>文件 <input name="file" type="file" accept=".iso,application/octet-stream" required /></label>

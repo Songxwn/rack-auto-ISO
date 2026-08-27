@@ -46,6 +46,26 @@ func TestMenuScriptItems(t *testing.T) {
 	}
 }
 
+func TestMenuStripsChinese(t *testing.T) {
+	menu := model.Menu{
+		Name:        "默认启动菜单 Boot",
+		Description: "机架装机",
+		Items: []model.MenuItem{
+			{ID: "a", Label: "安装系统 Install", Type: model.ItemShell, Enabled: true},
+		},
+	}
+	out := ipxescript.MenuScript(menu, model.Settings{}, nil)
+	if strings.Contains(out, "默认") || strings.Contains(out, "机架") || strings.Contains(out, "安装") {
+		t.Fatalf("chinese leaked into script: %s", out)
+	}
+	if !strings.Contains(out, "menu Boot") {
+		t.Fatalf("expected ASCII menu title: %s", out)
+	}
+	if !strings.Contains(out, "item a Install") {
+		t.Fatalf("expected ASCII item label: %s", out)
+	}
+}
+
 func TestRawOverride(t *testing.T) {
 	menu := model.Menu{RawScript: "echo hi\n"}
 	out := ipxescript.MenuScript(menu, model.Settings{}, nil)

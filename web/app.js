@@ -296,6 +296,8 @@ function renderISOs() {
       try {
         await api("/api/isos/" + iso.id, { method: "DELETE" });
         await loadISOs();
+        await loadMenus();
+        if (state.currentMenuId) selectMenu(state.currentMenuId);
       } catch (err) {
         setMsg($("#iso-msg"), err.message, false);
       }
@@ -316,7 +318,9 @@ $("#iso-form").addEventListener("submit", async (e) => {
     await api("/api/isos", { method: "POST", body: fd });
     f.reset();
     await loadISOs();
-    setMsg($("#iso-msg"), "上传完成");
+    setMsg($("#iso-msg"), "上传完成（已加入默认菜单）");
+    await loadMenus();
+    if (state.currentMenuId) selectMenu(state.currentMenuId);
   } catch (err) {
     setMsg($("#iso-msg"), err.message, false);
   }

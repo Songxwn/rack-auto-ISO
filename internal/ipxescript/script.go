@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Songxwn/rack-auto-ISO/internal/ascii"
 	"github.com/Songxwn/rack-auto-ISO/internal/model"
 )
 
@@ -234,8 +235,13 @@ func networkBlock(net model.NetworkConfig) string {
 }
 
 func escapeMenu(s string) string {
+	// iPXE menu/console is ASCII-oriented; strip CJK and control chars.
+	s = ascii.MenuText(s)
 	s = strings.ReplaceAll(s, "\n", " ")
 	s = strings.ReplaceAll(s, "\r", "")
+	if s == "" {
+		return "-"
+	}
 	return s
 }
 
