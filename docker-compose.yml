@@ -1,10 +1,12 @@
 # rack-auto-ISO — Docker Compose 部署
 #
-# 用法:
+# 推荐（curl 一键）:
 #   export IPXE_PUBLIC_URL=http://192.168.1.10:8081
-#   docker compose up -d
+#   curl -fsSL https://raw.githubusercontent.com/Songxwn/rack-auto-ISO/master/scripts/deploy-compose.sh | bash
 #
-# 镜像默认从 GHCR 拉取；本地开发可改用 build: .
+# 或本目录:
+#   export IPXE_PUBLIC_URL=http://192.168.1.10:8081
+#   docker compose pull && docker compose up -d
 
 services:
   ipxe-manager:
