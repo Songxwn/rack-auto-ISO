@@ -66,6 +66,26 @@ func TestMenuStripsChinese(t *testing.T) {
 	}
 }
 
+func TestISOResetsConsole(t *testing.T) {
+	menu := model.Menu{
+		Name: "Boot Menu",
+		Items: []model.MenuItem{
+			{ID: "d", Label: "Debian", Type: model.ItemISO, ISOID: "abc", Enabled: true},
+		},
+	}
+	isos := []model.ISOFile{{ID: "abc", Name: "debian.iso", Filename: "abc.iso"}}
+	out := ipxescript.MenuScript(menu, model.Settings{PublicURL: "http://10.0.0.1:8081"}, isos)
+	if strings.Contains(out, "console --x") {
+		t.Fatal("must not set graphical console resolution")
+	}
+	if !strings.Contains(out, "console ||") {
+		t.Fatal("expected console reset before sanboot")
+	}
+	if !strings.Contains(out, "sanboot --no-describe http://10.0.0.1:8081/files/isos/abc.iso") {
+		t.Fatalf("sanboot missing: %s", out)
+	}
+}
+
 func TestRawOverride(t *testing.T) {
 	menu := model.Menu{RawScript: "echo hi\n"}
 	out := ipxescript.MenuScript(menu, model.Settings{}, nil)

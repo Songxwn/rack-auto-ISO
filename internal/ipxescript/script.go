@@ -13,7 +13,8 @@ import (
 func EmbedScript(settings model.Settings) string {
 	var b strings.Builder
 	b.WriteString("#!ipxe\n")
-	b.WriteString("set console console,vga\n")
+	// Stay on text console. VGA/graphical console often causes garbled display
+	// after sanboot into Debian/Ubuntu installers (framebuffer handoff).
 	b.WriteString(fmt.Sprintf("echo %s - network bootstrap\n", safe(settings.ServerName)))
 	b.WriteString(networkBlock(settings.ISONet))
 	chain := settings.ChainURL
@@ -75,7 +76,8 @@ func MenuScript(menu model.Menu, settings model.Settings, isos []model.ISOFile) 
 
 	var b strings.Builder
 	b.WriteString("#!ipxe\n")
-	b.WriteString("console --x 1024 --y 768 ||\n")
+	// Text menu only — avoid "console --x 1024 --y 768" (common cause of 花屏
+	// when chainloading Linux installers that reinit the framebuffer).
 	timeout := menu.TimeoutSec
 	if timeout <= 0 {
 		timeout = 30
@@ -136,18 +138,6 @@ func MenuScript(menu model.Menu, settings model.Settings, isos []model.ISOFile) 
 			} else {
 				b.WriteString(fmt.Sprintf("chain --autofree %s || goto start\n", url))
 			}
-		case model.ItemKernel:
-			if it.Kernel == "" {
-				b.WriteString("echo missing kernel\n")
-				b.WriteString("sleep 3\n")
-				b.WriteString("goto start\n")
-				break
-			}
-			b.WriteString(fmt.Sprintf("kernel %s %s\n", it.Kernel, it.Args))
-			if it.Initrd != "" {
-				b.WriteString(fmt.Sprintf("initrd %s\n", it.Initrd))
-			}
-			b.WriteString("boot || goto start\n")
 		case model.ItemSanboot:
 			url := it.URL
 			if url == "" {
@@ -155,6 +145,7 @@ func MenuScript(menu model.Menu, settings model.Settings, isos []model.ISOFile) 
 				b.WriteString("sleep 3\n")
 				b.WriteString("goto start\n")
 			} else {
+				b.WriteString(resetVideoBeforeOS())
 				b.WriteString(fmt.Sprintf("sanboot %s || goto start\n", url))
 			}
 		case model.ItemISO:
@@ -173,9 +164,28 @@ func MenuScript(menu model.Menu, settings model.Settings, isos []model.ISOFile) 
 					url = fmt.Sprintf("isos/%s", f.Filename)
 				}
 			}
-			// http sanboot works for many Linux live ISOs when iPXE has the feature
 			b.WriteString(fmt.Sprintf("echo Booting ISO %s\n", escapeMenu(f.Name)))
+			b.WriteString(resetVideoBeforeOS())
+			// --no-describe avoids injecting iPXE boot info that some installers mishandle
 			b.WriteString(fmt.Sprintf("sanboot --no-describe %s || goto start\n", url))
+		case model.ItemKernel:
+			if it.Kernel == "" {
+				b.WriteString("echo missing kernel\n")
+				b.WriteString("sleep 3\n")
+				b.WriteString("goto start\n")
+				break
+			}
+			b.WriteString(resetVideoBeforeOS())
+			args := strings.TrimSpace(it.Args)
+			if args == "" {
+				// Safe defaults for Debian/Ubuntu graphical installer handoff
+				args = "nomodeset vga=normal"
+			}
+			b.WriteString(fmt.Sprintf("kernel %s %s\n", it.Kernel, args))
+			if it.Initrd != "" {
+				b.WriteString(fmt.Sprintf("initrd %s\n", it.Initrd))
+			}
+			b.WriteString("boot || goto start\n")
 		case model.ItemCustom:
 			custom := strings.TrimSpace(it.Custom)
 			if custom == "" {
@@ -201,6 +211,11 @@ func MenuScript(menu model.Menu, settings model.Settings, isos []model.ISOFile) 
 	b.WriteString("sleep 1\n")
 	b.WriteString("goto start\n")
 	return b.String()
+}
+
+// resetVideoBeforeOS drops any graphical/VESA console before handing off to an OS.
+func resetVideoBeforeOS() string {
+	return "console ||\nimgfree ||\n"
 }
 
 func networkBlock(net model.NetworkConfig) string {

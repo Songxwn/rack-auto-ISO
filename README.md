@@ -55,8 +55,10 @@ curl -fsS "http://127.0.0.1:8081/api/health"
 
 1. 浏览器打开 Public URL（如 `http://192.168.1.10:8081`）
 2. 确认 **Public URL**、导出 ISO 内嵌网络（DHCP/静态）
-3. 编辑菜单 / 上传 ISO
-4. 导出 `ipxe-custom.iso`（光驱或 U 盘启动；Secure Boot 需关闭）
+3. 编辑菜单 / 上传 ISO（菜单勿用中文）
+4. 导出或直接 PXE/`/boot.ipxe` 启动节点
+
+若 Debian/Ubuntu ISO **花屏**：已默认关闭 iPXE 图形控制台；请升级到最新 Release 后重试。仍花屏时可在安装器选 **Install** 文本模式，或改用 `kernel` 菜单项引导 `vmlinuz`/`initrd` 并带 `nomodeset`。
 
 环境变量：`IPXE_LISTEN`、`IPXE_DATA`、`IPXE_PUBLIC_URL`、`IPXE_ASSETS`。  
 arm64 将资源名中的 `linux_amd64` 换成 `linux_arm64`。
